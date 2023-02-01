@@ -13,7 +13,7 @@ class ReadOpac:
         assert len(set(self.lg)) <= 1, 'g grid needs to match'
         
         # initialize arrays:
-        self.kcoeff = np.zeros((self.ls, self.lp.max(),self.lt.max(),self.lf[0],self.lg[0]))
+        self.kcoeff = np.zeros((self.ls, self.lp.max(),self.lt.max(),self.lf[0],self.lg[0]), dtype=np.float64)
         self.bin_edges = np.zeros((self.ls, self.lf[0]+1))
         self.bin_center = np.zeros((self.ls, self.lf[0]))
         self.weights = np.zeros((self.ls, self.lg[0]))
@@ -23,21 +23,42 @@ class ReadOpac:
 
     def setup_temp_and_pres(self, temp=None, pres=None):
         if pres is None:
-            pmin = min([min(self.p[i,:self.lp[i]]) for i in range(self.ns)])
+            pmin = min([min(self.p[i,:self.lp[i]]) for i in range(self.ls)])
             pres = np.logspace(np.log10(pmin),np.log10(self.p.max()),len(self.p[0]))
+        else:
+            pres=np.array(pres)
+
         if temp is None:
-            tmin = min([min(self.T[i,:self.lt[i]]) for i in range(self.ns)])
+            tmin = min([min(self.T[i,:self.lt[i]]) for i in range(self.ls)])
             temp = np.logspace(np.log10(tmin),np.log10(self.T.max()),len(self.T[0]))
+        else:
+            temp = np.array(temp)
 
         lp_new = len(pres)
         lt_new = len(temp)
-        kcoeff_new = np.zeros((self.ns, lp_new, lt_new, self.lf[0], self.lg[0])) 
-        for i in range(self.ns):
+        kcoeff_new = np.zeros((self.ls, lp_new, lt_new, self.lf[0], self.lg[0]))
+
+        x1, x2, x3, x4 = np.meshgrid(pres, temp, self.bin_center, self.weights.cumsum(),indexing='ij')
+        eval_pts = np.array([x1.flatten(), x2.flatten(), x3.flatten(), x4.flatten()])
+
+        for i in range(self.ls):
             interpolator = RegularGridInterpolator((self.p[i,:self.lp[i]],self.T[i,:self.lt[i]], self.bin_center, self.weights.cumsum()), self.kcoeff[i,:self.lp[i],:self.lt[i],:,:], method='linear', fill_value=0.0, bounds_error=False)
-            x1,x2,x3,x4 = np.meshgrid(pres, temp, self.bin_center, self.weights.cumsum())
-            eval_pts = np.array([x1.flatten(),x2.flatten(),x3.flatten(),x4.flatten()]).T
-            kcoeff_new[i,:,:,:,:] = interpolator(eval_pts).reshape(kcoeff_new[i,:,:,:,:].shape)
-        
+
+            # EDGES are important !!
+            assert np.all(self.p[i, :self.lp[i]-1] <= self.p[i, 1:self.lp[i]]), 'pressure array not sorted correctly'
+            assert np.all(self.T[i, :self.lt[i]-1] <= self.T[i, 1:self.lt[i]]), 'temperature array not sorted correctly'
+
+            pltl = np.logical_and(x1 < self.p[i, :self.lp[i]].min(), x2 < self.T[i, :self.lt[i]].min())
+            psts = np.logical_and(x1 > self.p[i, :self.lp[i]].max(), x2 > self.T[i, :self.lt[i]].max())
+            pstl = np.logical_and(x1 > self.p[i, :self.lp[i]].max(), x2 < self.T[i, :self.lt[i]].min())
+            plts = np.logical_and(x1 < self.p[i, :self.lp[i]].min(), x2 > self.T[i, :self.lt[i]].max())
+
+            kcoeff_new[i, :, :, :, :] = interpolator(eval_pts.T).reshape(kcoeff_new[i, :, :, :, :].shape)
+            kcoeff_new[i][pltl] = np.repeat(self.kcoeff[i, 0, 0, :, :], repeats=int(pltl.sum()/self.lf[0]/self.lg[0]))
+            kcoeff_new[i][psts] = np.repeat(self.kcoeff[i, -1, -1, :, :], repeats=int(psts.sum()/self.lf[0]/self.lg[0]))
+            kcoeff_new[i][pstl] = np.repeat(self.kcoeff[i, -1, 0, :, :], repeats=int(pstl.sum()/self.lf[0]/self.lg[0]))
+            kcoeff_new[i][plts] = np.repeat(self.kcoeff[i, 0, -1, :, :], repeats=int(plts.sum()/self.lf[0]/self.lg[0]))
+
         self.kcoeff = kcoeff_new
         self.T = temp
         self.p = pres
@@ -49,21 +70,21 @@ class ReadOpac:
             ax = plt.gca()
 
         speci = self.spec.index(spec)
-        if len(self.p.shape)>1:
-            pi = np.searchsorted(self.p[speci], pres)
-            ti = np.searchsorted(self.T[speci], temp)
+        if len(self.p.shape) > 1:
+            pi = np.searchsorted(self.p[speci], pres)-1
+            ti = np.searchsorted(self.T[speci], temp)-1
             print('p:',self.p[speci,pi])
             print('T:',self.T[speci,ti])
 
         else:
-            pi = np.searchsorted(self.p, pres)
-            ti = np.searchsorted(self.T, temp)
-            print('p:',self.p[pi])
-            print('T:',self.T[ti])
+            pi = np.searchsorted(self.p, pres)-1
+            ti = np.searchsorted(self.T, temp)-1
+            # print('p:',self.p[pi])
+            # print('T:',self.T[ti])
+
         for fi in range(self.lf[0]):
             x = self.bin_edges[fi]+self.weights.cumsum()*(self.bin_edges[fi+1]-self.bin_edges[fi])
             ax.loglog(x,self.kcoeff[speci,pi,ti,fi,:], **plot_kwargs)
-
 
 
 class ReadOpacChubb(ReadOpac):
@@ -87,14 +108,12 @@ class ReadOpacChubb(ReadOpac):
                 self.T[i,:self.lt[i]] = np.array(f['t'])
                 self.p[i,:self.lp[i]] = np.array(f['p'])
                 # from cm2/mol to cm2/g:
-                conversion_factor = float(1/(float(f['mol_mass'][0])*const.atomic_mass*1000))
-                print(conversion_factor)
-                self.kcoeff[i,:self.lp[i],:self.lt[i],:,:] = np.array(f['kcoeff'], dtype=float)*conversion_factor
+                conversion_factor = 1/(float(f['mol_mass'][0])*const.atomic_mass*1000)
+                self.kcoeff[i,:self.lp[i],:self.lt[i],:,:] = np.array(f['kcoeff'], dtype=np.float64)*conversion_factor
 
         assert np.all(self.bin_edges[1:,:] == self.bin_edges[:-1,:]), 'frequency needs to match'
         assert np.all(self.weights[1:,:] == self.weights[:-1,:]), 'g grid needs to match'
-        assert np.all(np.isclose(self.kcoeff,0.0)), 'only zeros loaded'
-        
+
         self.bin_edges = self.bin_edges[0,:]
         self.bin_center = .5*(self.bin_edges[1:]+self.bin_edges[:-1])
         self.weights = self.weights[0,:]
