@@ -1,6 +1,7 @@
 import pytest
 import glob
 import os
+from opac_mixer.read import ReadOpacChubb
 
 
 @pytest.fixture(scope='module')
@@ -19,3 +20,23 @@ def opac_files():
         'p_interp_test': 0.47
     }
     return setup, expected
+
+
+@pytest.fixture(scope='module')
+def setup_reader(opac_files):
+    """Standard reader, currently opening up exomolOP."""
+    setup, expected = opac_files
+    chubb = ReadOpacChubb(setup['files'])
+    chubb.read_opac()
+    return chubb, expected
+
+
+@pytest.fixture(scope='module')
+def setup_interp_reader(opac_files):
+    """Standard reader, currently opening up exomolOP + interpolation."""
+    setup, expected = opac_files
+    opac = ReadOpacChubb(setup['files'])
+    opac.read_opac()
+    opac.setup_temp_and_pres()
+    return opac, expected
+

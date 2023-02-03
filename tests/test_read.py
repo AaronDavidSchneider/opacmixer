@@ -1,27 +1,7 @@
 import pytest
-from opac_mixer.read import ReadOpacChubb
-from test_config import opac_files
+from test_config import setup_reader, setup_interp_reader, opac_files
 import copy
 import numpy as np
-
-
-@pytest.fixture(scope='module')
-def setup_reader(opac_files):
-    """Standard reader, currently opening up exomolOP."""
-    setup, expected = opac_files
-    chubb = ReadOpacChubb(setup['files'])
-    chubb.read_opac()
-    return chubb, expected
-
-
-@pytest.fixture(scope='module')
-def setup_interp_reader(opac_files):
-    """Standard reader, currently opening up exomolOP + interpolation."""
-    setup, expected = opac_files
-    opac = ReadOpacChubb(setup['files'])
-    opac.read_opac()
-    opac.setup_temp_and_pres()
-    return opac, expected
 
 
 def test_dims(setup_reader):
