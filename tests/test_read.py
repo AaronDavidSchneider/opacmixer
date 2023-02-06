@@ -44,15 +44,18 @@ def test_interp_edges(setup_reader):
 
     opac_temp = copy.deepcopy(opac)
     opac_temp.setup_temp_and_pres(pres=[1e20], temp=[1e-20])
-    assert np.all(np.isclose(opac_temp.kcoeff[:,0,0,:,:], opac.kcoeff[:,-1,0,:,:]))
+    for speci in range(opac.ls):
+        assert np.all(np.isclose(opac_temp.kcoeff[speci,0,0,:,:], opac.kcoeff[speci,opac.lp[speci]-1,0,:,:]))
 
     opac_temp = copy.deepcopy(opac)
     opac_temp.setup_temp_and_pres(pres=[1e-20], temp=[1e20])
-    assert np.all(np.isclose(opac_temp.kcoeff[:,0,0,:,:], opac.kcoeff[:,0,-1,:,:]))
+    for speci in range(opac.ls):
+        assert np.all(np.isclose(opac_temp.kcoeff[speci,0,0,:,:], opac.kcoeff[speci,0,opac.lt[speci]-1,:,:]))
 
     opac_temp = copy.deepcopy(opac)
     opac_temp.setup_temp_and_pres(pres=[1e20], temp=[1e20])
-    assert np.all(np.isclose(opac_temp.kcoeff[:,0,0,:,:], opac.kcoeff[:,-1,-1,:,:]))
+    for speci in range(opac.ls):
+        assert np.all(np.isclose(opac_temp.kcoeff[speci,0,0,:,:], opac.kcoeff[speci,opac.lp[speci]-1,opac.lt[speci]-1,:,:]))
 
 
 def test_interp(setup_interp_reader, setup_reader):
@@ -71,3 +74,16 @@ def test_interp(setup_interp_reader, setup_reader):
             ti = np.searchsorted(o.T[speci], T) - 1
             data.append(o.kcoeff[speci,pi,ti,:,:])
         assert np.all(np.isclose(data[0],data[1]))
+
+
+def test_interp_vs_prt(setup_interp_reader):
+    """Compare interpolation from petitRADTRANS against implementation"""
+    from petitRADTRANS import Radtrans
+    opac, expected = setup_interp_reader
+
+    linespecies = [f.split('/')[-1].split('.')[0] for f in expected['files']]
+    atmosphere = Radtrans(line_species=linespecies, pressures=opac.pr, wlen_bords_micron=[(1e4/opac.bin_edges).min(), (1e4/opac.bin_edges).max()], test_ck_shuffle_comp=True)
+
+    for i, temp in enumerate(opac.Tr):
+        atmosphere.interpolate_species_opa(np.ones_like(opac.pr)*temp)
+        assert np.all(np.isclose(atmosphere.line_struc_kappas[:,:,:,:], opac.kcoeff[:,:,i,::-1,:].transpose(3,2,0,1))), 'interpolation gave different result'

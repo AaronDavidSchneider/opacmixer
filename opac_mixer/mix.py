@@ -8,61 +8,49 @@ DEFAULT_METHOD = 'RORR'
 
 
 @numba.njit(nogil=True, fastmath=True, cache=True)
-def resort_rebin_njit(ggrid, kout_conv, k1, k2, weights_conv, Np, Nt, Nf, Ng):
+def resort_rebin_njit(kout_conv, k1, k2, weights_in, weights_conv, Np, Nt, Nf, Ng):
+    """Resort and rebin the convoluted kappas. Note that this function works with g values calculated half integer."""
+
+    # Initialize arrays
     kout = np.zeros((Np, Nt, Nf, Ng))
+    len_resort = Ng*Ng
+    kout_conv_resorted = np.zeros(len_resort+1)  # note: We add +1 for the right edge
+    g_resorted = np.zeros(len_resort+1)  # note: We add +1 for the right edge
+    ggrid = compute_ggrid(weights_in, Ng)
+
+    # Start looping over p, t and freq, because we need to do the resorting and rebinning individually
+
     for pi in numba.prange(Np):
         for ti in numba.prange(Nt):
             for freqi in numba.prange(Nf):
-                if (k1[pi, ti, freqi, -1] - k2[pi, ti, freqi, 0]) * (k2[pi, ti, freqi, -1] - k1[pi, ti, freqi, 0]) < 0.:
-                    if k1[pi, ti, freqi,-1] > k2[pi, ti, freqi, -1]:
-                        kout[pi, ti, freqi, :] = k1[pi, ti, freqi, :]
-                    else:
-                        kout[pi, ti, freqi, :] = k2[pi, ti, freqi, :]
-                    continue
+                # Sort and resort:
                 index_sort = np.argsort(kout_conv[pi, ti, freqi])
-                kout_conv_resorted = kout_conv[pi, ti, freqi][index_sort]
+                kout_conv_resorted[:len_resort] = kout_conv[pi, ti, freqi][index_sort]
                 weights_resorted = weights_conv[index_sort]
-                g_resorted = weights_resorted.cumsum()
+                # compute new g-grid:
+                g_resorted[:len_resort] = compute_ggrid(weights_resorted, Ng*Ng)
+                # edges:
+                g_resorted[len_resort] = 1.0
+                kout_conv_resorted[len_resort] = k1[pi, ti, freqi, -1] + k2[pi, ti, freqi, -1]
+                kout_conv_resorted[0] = k1[pi, ti, freqi, 0] + k2[pi, ti, freqi, 0]
+                # interpolate:
                 kout[pi, ti, freqi, :] = np.interp(ggrid, g_resorted,
                                                    kout_conv_resorted)
     return kout
 
 
 @numba.njit(nogil=True, fastmath=True, cache=True)
-def _add_rorr_njit(ktable, weights, mmr, Ns, Np, Nt, Nf, Ng):
-    """
-    Add up ktables by random overlap with resorting and rebinning.
-    - The complete nonpython version, slightly slower compared to CombineOpac._add_rorr -
-    """
-    kout = np.zeros((Np, Nt, Nf, Ng))
-    k1 = np.zeros((Np, Nt, Nf, Ng))
-    k2 = np.zeros((Np, Nt, Nf, Ng))
-    kout_conv = np.zeros((Np, Nt, Nf, Ng*Ng))
+def compute_ggrid(w, Ng):
+    """Helper function that calculates the ggrid for given weights. Works on a halfinteger grid."""
+    cum_sum = 0.0
+    gcomp = np.empty(Ng)
 
-    for freqi in numba.prange(Nf):
-        for gi in numba.prange(Ng):
-            kout[:, :, freqi, gi] = mmr[0, :, :] * ktable[0, :, :, freqi, gi]
+    w_weighted = w / np.sum(w)
+    for i in range(Ng):
+        gcomp[i] = cum_sum + 0.5 * w_weighted[i]
+        cum_sum = cum_sum + w_weighted[i]
 
-    ggrid = weights.cumsum()
-    weights_conv = np.outer(weights, weights).flatten()
-
-    for speci in numba.prange(Ns):
-        for freqi in numba.prange(Nf):
-            for gi in numba.prange(Ng):
-                k1[:, :, freqi, gi] = kout[:,:, freqi, gi]
-                k2[:, :, freqi, gi] = ktable[speci + 1,:,:, freqi, gi] * mmr[speci + 1, :, :]
-
-        for pi in numba.prange(Np):
-            for ti in numba.prange(Nt):
-                for freqi in numba.prange(Nf):
-                    for gi in numba.prange(Ng):
-                        for gj in numba.prange(Ng):
-                            kout_conv[pi,ti,freqi,gj+Ng*gi] = k1[pi,ti,freqi,gi] + k2[pi,ti,freqi,gj]
-
-        kout = resort_rebin_njit(ggrid, kout_conv, k1, k2, weights_conv, Np, Nt, Nf, Ng)
-
-    return kout
-
+    return gcomp
 
 class CombineOpac:
     def __init__(self, opac):
@@ -126,13 +114,12 @@ class CombineOpac:
         """Add up ktables by random overlap with resorting and rebinning."""
         mixed_ktables = mmr[:, :, :, np.newaxis, np.newaxis]*ktable[:, :, :, :, :]
         kout = mixed_ktables[0, :, :, :, :]
-        ggrid = weights.cumsum()
         weights_conv = np.outer(weights, weights).flatten()
 
-        for speci in range(ktable.shape[0]-1):
+        for speci in range(1, ktable.shape[0]):
             k1 = kout
-            k2 = mixed_ktables[speci+1]
-            kout_conv = (k1[...,: , None] + k2[..., None, :]).reshape(*kout.shape[:-1], weights_conv.shape[0])
-            kout = resort_rebin_njit(ggrid, kout_conv, k1, k2, weights_conv, *kout.shape)
+            k2 = mixed_ktables[speci]
+            kout_conv = (k1[..., :, np.newaxis] + k2[..., np.newaxis, :]).reshape(*kout.shape[:-1], weights_conv.shape[0])
+            kout = resort_rebin_njit(kout_conv, k1, k2, weights, weights_conv, *kout.shape)
 
         return kout

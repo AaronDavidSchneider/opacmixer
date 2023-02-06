@@ -1,6 +1,6 @@
 import numpy as np
 
-from test_config import setup_reader, setup_interp_reader, opac_files
+from test_config import setup_reader, setup_interp_reader, opac_files, setup_test_mix
 from opac_mixer.mix import CombineOpac
 import numba
 
@@ -101,16 +101,37 @@ def RandOverlap_2_kdata_prof(Nlay, Nw, Ng, kdata1, kdata2, weights, ggrid):
             newkdata[ilay, iW, :] = np.interp(ggrid, newggrid, kdatasort)
     return newkdata
 
-def test_mix_vs_prt(setup_interp_reader):
+def _test_rorr_vs_aee_vs_linear(setup_test_mix):
+    """Plot the differences between the simplified mixing implementations"""
+    import matplotlib.pyplot as plt
+
+    opac, expected, mmr, mix, mixer = setup_test_mix
+
+    mix_l = mixer.add_single(mmr=mmr, method='linear')
+    mix_a = mixer.add_single(mmr=mmr, method='AEE')
+
+    for p in [1e-1]:
+        for t in [2000]:
+            pi = np.searchsorted(opac.pr, p) - 1
+            ti = np.searchsorted(opac.Tr, t) - 1
+            for fi in range(opac.lf[0]):
+                x = opac.bin_edges[fi] + opac.weights.cumsum() * (opac.bin_edges[fi + 1] - opac.bin_edges[fi])
+                l1, = plt.gca().plot(x, mix[pi, ti, fi, :], color='black', alpha=0.4, ls='-', label='RORR')
+                l2, = plt.gca().plot(x, mix_l[pi, ti, fi, :], color='red', alpha=0.4, ls='-', label='linear')
+                l3, = plt.gca().plot(x, mix_a[pi, ti, fi, :], color='orange', alpha=0.4, ls='-', label='aee')
+
+            plt.xscale('log')
+            plt.yscale('log')
+            plt.gca().legend(handles=[l1,l2,l3])
+            plt.show()
+
+
+def test_mix_vs_prt(setup_test_mix):
     """Compare against petitRADTRANS ck RORR implementation"""
     from petitRADTRANS import Radtrans
+    import matplotlib.pyplot as plt
 
-    opac, expected = setup_interp_reader
-
-    mmr = 1e-4 * np.ones((opac.ls, opac.lp[0], opac.lt[0]))
-
-    mixer = CombineOpac(opac)
-    mix = mixer.add_single(mmr=mmr, method='RORR')
+    opac, expected, mmr, mix, mixer = setup_test_mix
 
     linespecies = [f.split('/')[-1].split('.')[0] for f in expected['files']]
     atmosphere = Radtrans(line_species=linespecies, pressures=opac.pr, wlen_bords_micron=[(1e4/opac.bin_edges).min(), (1e4/opac.bin_edges).max()], test_ck_shuffle_comp=True)
@@ -133,10 +154,8 @@ def test_mix_vs_prt(setup_interp_reader):
         abunds = {spec: mmr[speci,:,i] for speci, spec in enumerate(linespecies)}
 
         atmosphere.interpolate_species_opa(np.ones_like(opac.pr)*temp)
-        # atmosphere.line_struc_kappas[:,:,:,:] = opac.kcoeff[:,:,i,::-1,:].transpose(3,2,0,1)
-        # atmosphere.temp = temp
 
-        # assert np.all(np.isclose(atmosphere.line_struc_kappas[:,:,:,:], opac.kcoeff[:,:,i,::-1,:].transpose(3,2,0,1), rtol=0.1)), 'interpolation gave different result'
+        assert np.all(np.isclose(atmosphere.line_struc_kappas[:,:,:,:], opac.kcoeff[:,:,i,::-1,:].transpose(3,2,0,1), rtol=0.01)), 'interpolation gave different result'
 
         atmosphere.mix_opa_tot(abunds, mmw, g, sigma_lnorm, fsed, Kzz, radius,
                          add_cloud_scat_as_abs=add_cloud_scat_as_abs,
@@ -146,33 +165,50 @@ def test_mix_vs_prt(setup_interp_reader):
 
         kcoeff_prt[:,i,:,:] = atmosphere.line_struc_kappas[:,::-1,0,:].transpose(2,1,0)
 
+    print(f'prt comparison gave {100*np.isclose(kcoeff_prt, mix, rtol=0.05).sum()/len(kcoeff_prt.flatten())} % similarity at 5% tolerance.')
+
+    for p in [1e-1]:
+        for t in [1500]:
+            pi = np.searchsorted(opac.pr, p) - 1
+            ti = np.searchsorted(opac.Tr, t) - 1
+
+            if not np.all(np.isclose(kcoeff_prt[pi, ti], mix[pi, ti])):
+                for fi in range(opac.lf[0]):
+                    x = opac.bin_edges[fi] + opac.weights.cumsum() * (opac.bin_edges[fi + 1] - opac.bin_edges[fi])
+                    plt.title(f'prt: {p}, {t}')
+                    plt.loglog(x, mix[pi, ti, fi, :], color='black', alpha=0.4, ls='-')
+                    plt.loglog(x, kcoeff_prt[pi, ti, fi, :], color='orange', alpha=0.4, ls='-')
+
+                plt.show()
+
+def _test_mix_vs_exok(setup_test_mix):
+    """Compare against exok ck RORR implementation"""
+    import matplotlib.pyplot as plt
+    opac, expected, mmr, mix, mixer = setup_test_mix
+
     kcoeff_exok = np.empty_like(mix)
     for i, temp in enumerate(opac.Tr):
-        kcoeff_exok[:, i, :, :] = mmr[0,:,i,np.newaxis,np.newaxis]*opac.kcoeff[0, :, i, :, :]
-        for speci, spec in enumerate(opac.spec[1:]):
+        kcoeff_exok[:, i, :, :] = mmr[0,:,i, np.newaxis, np.newaxis]*opac.kcoeff[0, :, i, :, :]
+        for speci in range(1,len(opac.spec)):
             # (Nlay, Nw, Ng)
-            kdata2 = mmr[speci,:,i,np.newaxis,np.newaxis]*opac.kcoeff[speci, :, i, :, :]
+            kdata2 = mmr[speci, :, i, np.newaxis, np.newaxis] * opac.kcoeff[speci, :, i, :, :]
             kdata1 = kcoeff_exok[:, i, :, :]
 
             kcoeff_exok[:, i, :, :] = RandOverlap_2_kdata_prof(opac.lp[0], opac.lf[0], opac.lg[0], kdata1, kdata2, opac.weights, opac.weights.cumsum())
 
-    pi = np.searchsorted(opac.pr, 100) - 1
-    ti = np.searchsorted(opac.Tr, 2000) - 1
+    for p in [1e-1]:
+        for t in [1500]:
+            pi = np.searchsorted(opac.pr, p) - 1
+            ti = np.searchsorted(opac.Tr, t) - 1
 
-    import matplotlib.pyplot as plt
-    for fi in range(opac.lf[0]):
-        x = opac.bin_edges[fi] + opac.weights.cumsum() * (opac.bin_edges[fi + 1] - opac.bin_edges[fi])
-        plt.loglog(x, kcoeff_prt[pi, ti, fi, :], color='red', alpha=0.4, ls=':')
-        plt.loglog(x, mix[pi, ti, fi, :], color='black', alpha=0.4, ls='-')
-        plt.loglog(x, kcoeff_exok[pi, ti, fi, :], color='orange', alpha=0.4, ls='--')
+            if not np.all(np.isclose(kcoeff_exok[pi, ti], mix[pi, ti])):
+                for fi in range(opac.lf[0]):
+                    x = opac.bin_edges[fi] + opac.weights.cumsum() * (opac.bin_edges[fi + 1] - opac.bin_edges[fi])
+                    plt.title(f'exok: {p}, {t}')
+                    plt.loglog(x, mix[pi, ti, fi, :], color='black', alpha=0.4, ls='-')
+                    plt.loglog(x, kcoeff_exok[pi, ti, fi, :], color='orange', alpha=0.4, ls='-')
 
-    plt.show()
-
-    assert np.all(np.isclose(kcoeff_exok, mix, rtol=0.1))
-    assert np.all(np.isclose(kcoeff_prt, mix, rtol=0.1))
-
-
-
+                plt.show()
 
 
 

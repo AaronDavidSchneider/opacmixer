@@ -1,8 +1,48 @@
 import numpy as np
+import numba
 import h5py
-from scipy.interpolate import RegularGridInterpolator
 import scipy.constants as const
 import matplotlib.pyplot as plt
+
+
+@numba.njit(nogil=True, fastmath=True, cache=True)
+def interp_2d(temp_old, press_old, temp_new, press_new, kcoeff, ls, lf, lg, lt_old, lp_old, lt_new, lp_new):
+    """Function that interpolates to correct pressure and temperature."""
+    kcoeff_new = np.empty((ls, lp_new, lt_new, lf, lg), dtype=np.float64)
+
+    for speci in numba.prange(ls):
+        to_i = temp_old[speci, :lt_old[speci]]
+        po_i = press_old[speci, :lp_old[speci]]
+        kcoeff_i = kcoeff[speci, :lp_old[speci], :lt_old[speci]]
+
+        for gi in numba.prange(lg):
+            for freqi in numba.prange(lf):
+                # reset temporary array
+                p_interp = np.empty((lp_new, lt_old[speci]), dtype=np.float64)
+                pt_interp = np.empty((lp_new, lt_new), dtype=np.float64)
+
+                # interp to new pressure (for all temperatures)
+                for ti in numba.prange(lt_old[speci]):
+                    p_interp[:, ti] = np.interp(press_new, po_i, kcoeff_i[:, ti, freqi, gi])
+                # interp to new temperature (for all -new- pressures)
+                for pi in numba.prange(lp_new):
+                    pt_interp[pi, :] = np.interp(temp_new, to_i, p_interp[pi, :])
+
+                # Do edges
+                for pi in numba.prange(lp_new):
+                    for ti in numba.prange(lt_new):
+                        if press_new[pi] < min(po_i) and temp_new[ti] < min(to_i):
+                            pt_interp[pi, ti] = kcoeff[speci, np.argmin(po_i), np.argmin(to_i), freqi, gi]
+                        elif press_new[pi] < min(po_i) and temp_new[ti] > max(to_i):
+                            pt_interp[pi, ti] = kcoeff[speci, np.argmin(po_i), np.argmax(to_i), freqi, gi]
+                        elif press_new[pi] > max(po_i) and temp_new[ti] < min(to_i):
+                            pt_interp[pi, ti] = kcoeff[speci, np.argmax(po_i), np.argmin(to_i), freqi, gi]
+                        elif press_new[pi] > max(po_i) and temp_new[ti] > max(to_i):
+                            pt_interp[pi, ti] = kcoeff[speci, np.argmax(po_i), np.argmax(to_i), freqi, gi]
+
+                kcoeff_new[speci, :, :, freqi, gi] = pt_interp
+
+    return kcoeff_new
 
 
 class ReadOpac:
@@ -53,30 +93,9 @@ class ReadOpac:
 
         lp_new = self.ls*[len(pres)]
         lt_new = self.ls*[len(temp)]
-        kcoeff_new = np.zeros((self.ls, lp_new[0], lt_new[0], self.lf[0], self.lg[0]))
 
-        x1, x2, x3, x4 = np.meshgrid(pres, temp, self.bin_center, self.weights.cumsum(),indexing='ij')
-        eval_pts = np.array([x1.flatten(), x2.flatten(), x3.flatten(), x4.flatten()])
+        self.kcoeff = interp_2d(self.T, self.p, temp, pres, self.kcoeff, self.ls, self.lf[0], self.lg[0], self.lt, self.lp, lt_new[0], lp_new[0])
 
-        for i in range(self.ls):
-            interpolator = RegularGridInterpolator((self.p[i,:self.lp[i]],self.T[i,:self.lt[i]], self.bin_center, self.weights.cumsum()), self.kcoeff[i,:self.lp[i],:self.lt[i],:,:], method='linear', fill_value=0.0, bounds_error=False)
-
-            # EDGES are important !!
-            assert np.all(self.p[i, :self.lp[i]-1] <= self.p[i, 1:self.lp[i]]), 'pressure array not sorted correctly'
-            assert np.all(self.T[i, :self.lt[i]-1] <= self.T[i, 1:self.lt[i]]), 'temperature array not sorted correctly'
-
-            pltl = np.logical_and(x1 < self.p[i, :self.lp[i]].min(), x2 < self.T[i, :self.lt[i]].min())
-            psts = np.logical_and(x1 > self.p[i, :self.lp[i]].max(), x2 > self.T[i, :self.lt[i]].max())
-            pstl = np.logical_and(x1 > self.p[i, :self.lp[i]].max(), x2 < self.T[i, :self.lt[i]].min())
-            plts = np.logical_and(x1 < self.p[i, :self.lp[i]].min(), x2 > self.T[i, :self.lt[i]].max())
-
-            kcoeff_new[i, :, :, :, :] = interpolator(eval_pts.T).reshape(kcoeff_new[i, :, :, :, :].shape)
-            kcoeff_new[i][pltl] = np.repeat(self.kcoeff[i, 0, 0, :, :], repeats=int(pltl.sum()/self.lf[0]/self.lg[0]))
-            kcoeff_new[i][psts] = np.repeat(self.kcoeff[i, -1, -1, :, :], repeats=int(psts.sum()/self.lf[0]/self.lg[0]))
-            kcoeff_new[i][pstl] = np.repeat(self.kcoeff[i, -1, 0, :, :], repeats=int(pstl.sum()/self.lf[0]/self.lg[0]))
-            kcoeff_new[i][plts] = np.repeat(self.kcoeff[i, 0, -1, :, :], repeats=int(plts.sum()/self.lf[0]/self.lg[0]))
-
-        self.kcoeff = kcoeff_new
         self.pr = pres
         self.Tr = temp
         self.T = np.ones((self.ls,lt_new[0]))*temp

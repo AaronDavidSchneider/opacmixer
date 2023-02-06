@@ -1,13 +1,14 @@
 import pytest
 import glob
 import os
+import numpy as np
 from opac_mixer.read import ReadOpacChubb
-
+from opac_mixer.mix import CombineOpac
 
 @pytest.fixture(scope='module')
 def opac_files():
     """Setup files"""
-    resolution ='10'
+    resolution ='S1'
     base = '/Users/schneider/codes/exo/prt_input_data/opacities/lines/corr_k'
     files = glob.glob(os.path.join(base, f'*_R_{resolution}/*.h5'))
 
@@ -39,3 +40,10 @@ def setup_interp_reader(opac_files):
     opac.setup_temp_and_pres()
     return opac, expected
 
+@pytest.fixture(scope='module')
+def setup_test_mix(setup_interp_reader):
+    opac, expected = setup_interp_reader
+    mmr = 1e-4 * np.ones((opac.ls, opac.lp[0], opac.lt[0]))
+    mixer = CombineOpac(opac)
+    mix = mixer.add_single(mmr=mmr, method='RORR')
+    return opac, expected, mmr, mix, mixer
