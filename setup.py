@@ -17,10 +17,13 @@ setuptools.setup(
     long_description_content_type="text/markdown",
     # scripts=['scripts/chemcomp_main', 'scripts/chemcomp_pipeline', 'scripts/chemcomp_pipeline_slurm'],
     install_requires=[
-        "keras",
+        "tensorflow>2.0",
+        "scikit-learn",
+        "xgboost",
         "scipy",
         "numpy",
         "matplotlib",
         "pyyaml",
+        "tqdm"
     ]
 )

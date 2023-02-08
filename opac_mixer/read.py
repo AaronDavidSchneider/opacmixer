@@ -57,16 +57,16 @@ class ReadOpac:
         
         # initialize arrays:
         self.kcoeff = np.zeros((self.ls, self.lp.max(),self.lt.max(),self.lf[0],self.lg[0]), dtype=np.float64)
-        self.bin_edges = np.zeros(self.lf[0]+1)
-        self.bin_center = np.zeros(self.lf[0])
-        self.weights = np.zeros(self.lg[0])
-        self.T = np.zeros((self.ls, self.lt.max()))
-        self.p = np.zeros((self.ls, self.lp.max()))
+        self.bin_edges = np.zeros(self.lf[0]+1, dtype=np.float64)
+        self.bin_center = np.zeros(self.lf[0], dtype=np.float64)
+        self.weights = np.zeros(self.lg[0], dtype=np.float64)
+        self.T = np.zeros((self.ls, self.lt.max()), dtype=np.float64)
+        self.p = np.zeros((self.ls, self.lp.max()), dtype=np.float64)
         self.spec = self.ls*[""]
 
         # Initialize reduced arrays (will only be set during interpolation)
-        self.pr = np.empty(self.lp.max())
-        self.Tr = np.empty(self.lt.max())
+        self.pr = np.empty(self.lp.max(), dtype=np.float64)
+        self.Tr = np.empty(self.lt.max(), dtype=np.float64)
         self.interp_done = False
         self._read_done = False
 
@@ -98,11 +98,39 @@ class ReadOpac:
 
         self.pr = pres
         self.Tr = temp
-        self.T = np.ones((self.ls,lt_new[0]))*temp
-        self.p = np.ones((self.ls,lp_new[0]))*pres
+        self.T = np.ones((self.ls,lt_new[0]), dtype=np.float64)*temp
+        self.p = np.ones((self.ls,lp_new[0]), dtype=np.float64)*pres
         self.lp = lp_new
         self.lt = lt_new
         self.interp_done = True
+
+    def remove_sparse_frequencies(self):
+        """Check for zeros in the opacity and remove them"""
+
+        # Search for the zeros in every species
+        nonzero_index = np.empty((self.ls, self.lf[0]))
+        for i in range(self.ls):
+            nonzero_index[i] = np.all(self.kcoeff[i, :self.lp[i], :self.lt[i], :, :], axis=(0, 1, 3))
+
+        # Search for common zeros in every species
+        nonzero_index = np.all(nonzero_index, axis=0)
+
+        # Construct the array for the edges
+        edges_nonzero = np.ones(self.lf[0] + 1)  # default case, no zeros
+        if not nonzero_index[0] or not nonzero_index[-1]:
+            # We need to add the outer borders to the edges
+            edges_nonzero = np.append(nonzero_index, 1.0)
+        else:
+            if np.count_nonzero(nonzero_index) != self.lf[0]:
+                # We want that the zeros start at the frequency edges
+                # nonzero_index[-1] or nonzero_index[0] would then need to be zero
+                raise ValueError('zeros in the middle. Cant handle that. It makes no sense.')
+
+        # adapt the members accordingly
+        self.lf = np.repeat(np.count_nonzero(nonzero_index), self.ls)
+        self.bin_edges = self.bin_edges[np.asarray(edges_nonzero, dtype=bool)]
+        self.bin_center = .5 * (self.bin_edges[1:] + self.bin_edges[:-1])
+        self.kcoeff = self.kcoeff[:, :, :, np.asarray(nonzero_index, dtype=bool), :]
 
     def plot_opac(self, pres, temp, spec, ax=None, **plot_kwargs):
         """Simple pltting of the opacity."""
@@ -135,23 +163,26 @@ class ReadOpacChubb(ReadOpac):
 
     def read_opac(self):
         """Read in the kcoeff from h5 file."""
-        bin_edges = np.empty((self.ls, self.lf[0]+1))
-        weights = np.empty((self.ls, self.lg[0]))
+        bin_edges = np.empty((self.ls, self.lf[0]+1), dtype=np.float64)
+        weights = np.empty((self.ls, self.lg[0]), dtype=np.float64)
         for i, file in enumerate(self._files):
             with h5py.File(file) as f:
-                bin_edges[i,:] = np.array(f['bin_edges'])
-                weights[i,:] = np.array(f['weights'])
+                bin_edges[i,:] = np.array(f['bin_edges'], dtype=np.float64)
+                weights[i,:] = np.array(f['weights'], dtype=np.float64)
                 self.spec[i] = f['mol_name'][0].decode('ascii')
-                self.T[i,:self.lt[i]] = np.array(f['t'])
-                self.p[i,:self.lp[i]] = np.array(f['p'])
+                self.T[i,:self.lt[i]] = np.array(f['t'], dtype=np.float64)
+                self.p[i,:self.lp[i]] = np.array(f['p'], dtype=np.float64)
                 # from cm2/mol to cm2/g:
                 conversion_factor = 1/(float(f['mol_mass'][0])*const.atomic_mass*1000)
-                self.kcoeff[i,:self.lp[i],:self.lt[i],:,:] = np.array(f['kcoeff'], dtype=np.float64)*conversion_factor
+                kcoeff = np.array(f['kcoeff'], dtype=np.float64)*conversion_factor
+                self.kcoeff[i,:self.lp[i],:self.lt[i],:,:] = kcoeff
 
         assert np.all(bin_edges[1:,:] == bin_edges[:-1,:]), 'frequency needs to match'
         assert np.all(weights[1:,:] == weights[:-1,:]), 'g grid needs to match'
-
         self.bin_edges = bin_edges[0,:]
-        self.bin_center = .5*(self.bin_edges[1:]+self.bin_edges[:-1])
+
+        self.remove_sparse_frequencies()
+
         self.weights = weights[0,:]
+
         self._read_done = True
