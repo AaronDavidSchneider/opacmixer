@@ -1,7 +1,7 @@
 import numpy as np
 
-from test_config import setup_reader, setup_interp_reader, opac_files, setup_test_mix
-from opac_mixer.mix import CombineOpac
+from test_config import setup_reader, setup_interp_reader, opac_files, setup_test_mix_grid, setup_test_mix_ind
+from opac_mixer.mix import CombineOpacIndividual, CombineOpacGrid
 import numba
 
 
@@ -13,7 +13,7 @@ def test_mix_single(setup_interp_reader):
     mmr = np.zeros((opac.ls, opac.lp[0], opac.lt[0]))
     mmr[mol_single_i,:,:] = 1.0
 
-    mix = CombineOpac(opac)
+    mix = CombineOpacGrid(opac)
     lm = mix.add_single(mmr=mmr, method='linear')
     am = mix.add_single(mmr=mmr, method='AEE')
     rm = mix.add_single(mmr=mmr, method='RORR')
@@ -49,6 +49,7 @@ def kdata_conv_loop_profile(kdata1,kdata2,kdataconv,Nlay,Nw,Ng):
             for l in range(Ng):
                 for m in range(Ng):
                     kdataconv[i,j,l*Ng+m]=kdata1[i,j,m]+kdata2[i,j,l]
+
 
 @numba.njit(nogil=True, fastmath=True, cache=True)
 def RandOverlap_2_kdata_prof(Nlay, Nw, Ng, kdata1, kdata2, weights, ggrid):
@@ -101,11 +102,22 @@ def RandOverlap_2_kdata_prof(Nlay, Nw, Ng, kdata1, kdata2, weights, ggrid):
             newkdata[ilay, iW, :] = np.interp(ggrid, newggrid, kdatasort)
     return newkdata
 
-def _test_rorr_vs_aee_vs_linear(setup_test_mix):
+
+def test_individual_rorr_vs_grid_rorr(setup_test_mix_grid, setup_test_mix_ind):
+    """Test that there is no difference between the individual mixing and the grid mixing"""
+    opac_ind, _, input_data, mix_ind, _ = setup_test_mix_ind
+    opac_grid, _, _, mix_grid, _ = setup_test_mix_grid
+
+    mix_ind_resh = mix_ind.reshape((opac_grid.lt[0],opac_grid.lp[0],opac_grid.lf[0],opac_grid.lg[0])).transpose(1,0,2,3)
+
+    assert np.isclose(mix_ind_resh, mix_grid).all()
+
+
+def _test_rorr_vs_aee_vs_linear(setup_test_mix_grid):
     """Plot the differences between the simplified mixing implementations"""
     import matplotlib.pyplot as plt
 
-    opac, expected, mmr, mix, mixer = setup_test_mix
+    opac, expected, mmr, mix, mixer = setup_test_mix_grid
 
     mix_l = mixer.add_single(mmr=mmr, method='linear')
     mix_a = mixer.add_single(mmr=mmr, method='AEE')
@@ -126,12 +138,12 @@ def _test_rorr_vs_aee_vs_linear(setup_test_mix):
             plt.show()
 
 
-def test_mix_vs_prt(setup_test_mix):
+def test_mix_vs_prt(setup_test_mix_grid):
     """Compare against petitRADTRANS ck RORR implementation"""
     from petitRADTRANS import Radtrans
     import matplotlib.pyplot as plt
 
-    opac, expected, mmr, mix, mixer = setup_test_mix
+    opac, expected, mmr, mix, mixer = setup_test_mix_grid
 
     linespecies = [f.split('/')[-1].split('.')[0] for f in expected['files']]
     atmosphere = Radtrans(line_species=linespecies, pressures=opac.pr, wlen_bords_micron=[(1e4/opac.bin_edges).min(), (1e4/opac.bin_edges).max()], test_ck_shuffle_comp=True)
@@ -181,10 +193,10 @@ def test_mix_vs_prt(setup_test_mix):
 
                 plt.show()
 
-def _test_mix_vs_exok(setup_test_mix):
+def _test_mix_vs_exok(setup_test_mix_grid):
     """Compare against exok ck RORR implementation"""
     import matplotlib.pyplot as plt
-    opac, expected, mmr, mix, mixer = setup_test_mix
+    opac, expected, mmr, mix, mixer = setup_test_mix_grid
 
     kcoeff_exok = np.empty_like(mix)
     for i, temp in enumerate(opac.Tr):

@@ -19,6 +19,7 @@ setuptools.setup(
     install_requires=[
         "tensorflow>2.0",
         "scikit-learn",
+        "numba",
         "xgboost",
         "scipy",
         "numpy",
