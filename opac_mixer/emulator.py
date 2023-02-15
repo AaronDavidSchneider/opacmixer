@@ -253,7 +253,7 @@ class Emulator:
         if not self._has_mix:
             raise AttributeError('we do not have a mix to work with yet. Run setup_sampling_grid and setup_mix first.')
 
-        if model is None and not load:
+        if model is None:
             # Use an XGB Regression ensemble
             self.model = xg.XGBRegressor(n_estimators=n_estimators, tree_method=tree_method, **model_kwargs)
         elif model is not None:
@@ -263,6 +263,7 @@ class Emulator:
         if load:
             # Load model
             self.model.load_model(filename)
+            self._is_trained = True
 
         if filename is not None and not load:
             # Save filename for later use
@@ -342,3 +343,10 @@ class Emulator:
             raise NotImplementedError('shape not available.')
 
 
+    def plot_ktable(self):
+        # TODO: Some stuff here
+        pass
+
+    def calc_score(self):
+        # TODO: Some stuff here
+        pass
