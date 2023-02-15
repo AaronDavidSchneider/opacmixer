@@ -28,17 +28,17 @@ class ReadOpac:
         self.pr = np.empty(self.lp.max(), dtype=np.float64)
         self.Tr = np.empty(self.lt.max(), dtype=np.float64)
         self.interp_done = False
-        self._read_done = False
+        self.read_done = False
 
     def read_opac(self):
         """read in the opacity, dependent on the opac IO model."""
-        self._read_done = True
+        self.read_done = True
         return NotImplementedError('to be implemented in childclass')
 
     def setup_temp_and_pres(self, temp=None, pres=None):
         """Interpolate kcoeffs to different pressure and temperature values."""
 
-        assert self._read_done, 'run read_opac first'
+        assert self.read_done, 'run read_opac first'
         if pres is None:
             pmin = min([min(self.p[i,:self.lp[i]]) for i in range(self.ls)])
             pres = np.logspace(np.log10(pmin),np.log10(self.p.max()),len(self.p[0]))
@@ -145,4 +145,4 @@ class ReadOpacChubb(ReadOpac):
 
         self.weights = weights[0,:]
 
-        self._read_done = True
+        self.read_done = True
