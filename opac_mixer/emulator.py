@@ -29,11 +29,19 @@ const_c = 2.99792458e10  # speed of light in cgs
 
 
 def default_input_scaling(x):
+    """Default function used for input scaling"""
     return x
+
+
 def default_output_scaling(y):
+    """Default function used for output scaling"""
     return y**0.1
+
+
 def default_inv_output_scaling(y):
+    """Default function used to recover output scaling"""
     return y**10
+
 
 class Emulator:
     def __init__(self, opac, prange_opacset=DEFAULT_PRANGE, trange_opacset=DEFAULT_TRANGE):
@@ -54,7 +62,7 @@ class Emulator:
         if not self.opac.read_done:
             self.opac.read_opac()
         if not self.opac.interp_done:
-            self.opac.setup_temp_and_pres(pres=np.logspace(*prange_opacset, 100),
+            self.opac.setup_temp_and_pres(pres=np.logspace(np.log(prange_opacset[0]),np.log(prange_opacset[1]), 100),
                                           temp=np.linspace(*trange_opacset, 100))
 
         self.mixer = CombineOpacIndividual(self.opac)
@@ -69,7 +77,10 @@ class Emulator:
         self._is_trained = False
 
     def setup_scaling(self, input_scaling = None, output_scaling = None, inv_output_scaling = None):
-        """(optional) Change the callback functions for the scaling of in and output. Defaults are given as opac_mixer.emulator.default_<name>."""
+        """
+        (optional) Change the callback functions for the scaling of in and output.
+        Defaults are given as opac_mixer.emulator.default_<name>.
+        """
         if input_scaling is not None:
             self.input_scaling = input_scaling
         if output_scaling is not None:
@@ -106,15 +117,15 @@ class Emulator:
             The sampled inputdata to train/test the emulator.
             Shape: [..., [mmr_{0,i}, .., mmr_{ls,i}, p_i, T_i], ...]
         """
-        if filename is not None:
-            input_data = np.load(filename)
-            shape = input_data.shape
+        # make sure the filename comes without the npy suffix
+        filename = filename.replace('.npy', '')
 
-            if len(shape) != 2 or shape[1] != self.opac.ls + 2:
-                raise ValueError('input data does not match')
-
-            self.batchsize = shape[0]
+        if filename is not None and load:
+            input_data = np.load(f"{filename}.npy")
+            self._check_input_data(input_data)
+            self.batchsize = input_data.shape[0]
             self.input_data = input_data
+            self._has_input = True
             return self.input_data
 
         self.batchsize = batchsize
@@ -155,8 +166,10 @@ class Emulator:
 
         # Scale the sampling to the actual bounds
         self.input_data = np.empty((batchsize, dim))
-        self.input_data[:-1, :] = np.exp(qmc.scale(sample=sample[:-1,:], l_bounds=np.log(l_bounds[:-1,:]), u_bounds=np.log(u_bounds[:-1,:])))
-        self.input_data[-1, :] = qmc.scale(sample=sample[-1,:], l_bounds=l_bounds[-1, :], u_bounds=u_bounds[-1, :])
+        self.input_data[:, :-1] = np.exp(sample[:, :-1] * (np.log(u_bounds)[np.newaxis, :-1]-np.log(l_bounds)[np.newaxis, :-1]) + np.log(l_bounds)[np.newaxis, :-1])
+        self.input_data[:, -1] = sample[:, -1] * (u_bounds[-1]-l_bounds[-1]) + l_bounds[-1]
+
+        self._check_input_data(self.input_data)
 
         if filename is not None:
             np.save(f"{filename}.npy", self.input_data)
@@ -165,7 +178,13 @@ class Emulator:
 
         return self.input_data
 
-    def setup_mix(self, test_size=0.2, filename=None, load=False, **split_kwargs):
+    def _check_input_data(self, input_data):
+        shape = input_data.shape
+        if len(shape) != 2 or shape[1] != self.opac.ls + 2:
+            raise ValueError('input data does not match')
+        assert (input_data >= 0).all(), "We need positive input data!"
+
+    def setup_mix(self, test_size=0.2, filename=None, do_parallel=True, load=False, **split_kwargs):
         """
         Setup the mixer and generate the training and testdata.
 
@@ -181,13 +200,24 @@ class Emulator:
         if not self._has_input:
             raise AttributeError('we do not have input yet. Run setup_sampling_grid first.')
 
+        # make sure the filename comes without the npy suffix
+        filename = filename.replace('.npy', '')
+
         if not load:
-            mix = self.mixer.add_batch_parallel(self.input_data).reshape((self.batchsize, self.opac.lf[0] * self.opac.lg[0]))
+            if do_parallel:
+                mix = self.mixer.add_batch_parallel(self.input_data).reshape(
+                    (self.batchsize, self.opac.lf[0] * self.opac.lg[0]))
+            else:
+                mix = self.mixer.add_batch(self.input_data).reshape(
+                    (self.batchsize, self.opac.lf[0] * self.opac.lg[0]))
         else:
-            mix = np.load(filename)
+            mix = np.load(f"{filename}.npy")
 
         if filename is not None and not load:
             np.save(f"{filename}.npy", mix)
+
+        if (mix <= 0).any():
+            raise ValueError('We found negative crosssections. Something is wrong here.')
 
         self.X_train, self.X_test, self.y_train, self.y_test = train_test_split(
             self.input_data,
@@ -235,8 +265,8 @@ class Emulator:
             self.model.load_model(filename)
 
         if filename is not None and not load:
-            # Requires that model implements a save_model function
-            self.model.save_model(filename)
+            # Save filename for later use
+            self._model_filename = filename
 
         self._has_model = True
 
@@ -258,6 +288,10 @@ class Emulator:
         # fit the model on the training dataset
         self.model.fit(self.input_scaling(self.X_train), self.output_scaling(self.y_train), *args, **kwargs)
 
+        if hasattr(self, "_model_filename") and callable(getattr(self.model, "save_model", None)):
+            print(f"Saving model to {self._model_filename}")
+            self.model.save_model(self._model_filename)
+
         self._is_trained = True
 
     def predict(self, X, shape='opac', prt_freq=None, *args, **kwargs):
@@ -277,9 +311,9 @@ class Emulator:
             Radtrans.freq array, only used for matching frequencies if shape=='prt'.
             Note: This mode also requires self.opac.bin_center to be wavenumbers in cgs
         args:
-            Whatever you want to pass to the model to fit
+            Whatever you want to pass to the model for prediction
         kwargs:
-            Whatever you want to pass to the model to fit
+            Whatever you want to pass to the model for prediction
 
         """
         if not self._is_trained:
