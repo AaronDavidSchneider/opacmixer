@@ -325,23 +325,49 @@ class Emulator:
 
         # fit the model on the training dataset
         y_predict = self.inv_output_scaling(self.model.predict(self.input_scaling(X), *args, **kwargs))
+        return self.reshape(y_predict, shape=shape, prt_freq=prt_freq)
 
+
+    def reshape(self, y, shape = 'opac', prt_freq=None):
+        """
+        Train the model.
+
+        Parameters
+        ----------
+        y: array like (num_samples, input_dim)
+            The y values you want to be reshaped
+        shape: str
+            The output shape for the predictions.
+            'opac': same shape as opac reader: (num_samples, lf, lg)
+            'same': native flat shape: (num_samples, lf*lg)
+            'prt': same as 'opac' but with reverse freq
+        prt_freq: array
+            Radtrans.freq array, only used for matching frequencies if shape=='prt'.
+            Note: This mode also requires self.opac.bin_center to be wavenumbers in cgs
+
+
+        Returns
+        -------
+        y: reshaped array
+        """
         if shape == 'same':
-            return y_predict
-        elif shape == 'opac':
-            return y_predict.reshape(X.shape[0], self.opac.lf[0], self.opac.lg[0])
+            return y
+
+        y_resh = y.reshape(y.shape[0], self.opac.lf[0], self.opac.lg[0])
+
+        if shape == 'opac':
+            return y_resh
         elif shape == 'prt':
-            y_predict_prt = np.empty((self.opac.lg[0], self.opac.lf[0], 1, X.shape[0]))
+            y_prt = np.empty((self.opac.lg[0], self.opac.lf[0], y.shape[0]))
             if prt_freq is not None:
                 for freqi, freq in enumerate(self.opac.bin_center):
                     idx = np.abs(prt_freq / const_c - freq).argmin()
-                    y_predict_prt[:, idx, 0, :] = y_predict[:, freqi, :].T
+                    y_prt[:, idx, :] = y_resh[:, freqi, :].T
             else:
                 raise ValueError('We need the frequencies from prt to match the prediction')
-            return y_predict_prt
+            return y_prt
         else:
             raise NotImplementedError('shape not available.')
-
 
     def plot_ktable(self):
         # TODO: Some stuff here
