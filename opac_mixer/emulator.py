@@ -255,7 +255,19 @@ class Emulator:
 
         if model is None:
             # Use an XGB Regression ensemble
-            self.model = xg.XGBRegressor(n_estimators=n_estimators, tree_method=tree_method, **model_kwargs)
+            xgb_params = {
+                'colsample_bytree': 0.7,
+                'learning_rate': 0.25,
+                'max_depth': 5,
+                'min_child_weight': 3,
+                'subsample': 0.9718261507246835,
+                'n_estimators': n_estimators,
+                'tree_method': tree_method,
+                'eval_metric': 'rmse',
+                'early_stopping_rounds': 10,
+            }
+            xgb_params.update(model_kwargs)
+            self.model = xg.XGBRegressor(**xgb_params)
         elif model is not None:
             # Use provided model (needs to be sklearn compatible)
             self.model = model
@@ -287,7 +299,12 @@ class Emulator:
             raise AttributeError('we do not have a model yet. Run setup_sampling_grid, setup_mix and setup_model first.')
 
         # fit the model on the training dataset
-        self.model.fit(self.input_scaling(self.X_train), self.output_scaling(self.y_train), *args, **kwargs)
+        X_train = self.input_scaling(self.X_train)
+        X_test = self.input_scaling(self.X_test)
+        y_train = self.output_scaling(self.y_train)
+        y_test = self.output_scaling(self.y_test)
+
+        self.model.fit(X_train, y_train, eval_set=[(X_train, y_train), (X_test, y_test)], *args, **kwargs)
 
         if hasattr(self, "_model_filename") and callable(getattr(self.model, "save_model", None)):
             print(f"Saving model to {self._model_filename}")
