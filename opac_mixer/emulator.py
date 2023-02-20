@@ -35,12 +35,13 @@ def default_input_scaling(x):
 
 def default_output_scaling(y):
     """Default function used for output scaling"""
-    return y**0.1
+    return np.log10(y)
 
 
 def default_inv_output_scaling(y):
     """Default function used to recover output scaling"""
-    return y**10
+    return 10**y
+
 
 
 class Emulator:
@@ -230,7 +231,7 @@ class Emulator:
 
         return self.X_train, self.X_test, self.y_train, self.y_test
 
-    def setup_model(self, model=None, n_estimators=128, tree_method="hist", filename=None, load=False, **model_kwargs):
+    def setup_model(self, model=None, filename=None, load=False, **model_kwargs):
         """
         Setup the emulator model and train it.
 
@@ -238,14 +239,22 @@ class Emulator:
         ----------
         model: sklearn compatible model
             (optional): a model to learn. Needs to be contructed already. Use XGBRegressor by default
-        n_estimators: int
-            (optional): number of trees in the ensemble (only when model=None is used)
-        tree_method: int
-            (optional): method to use for training of the trees in the ensemble (only when model=None is used)
         filename: str or None
             (opyional): A filename to save the model
         load: bool
             (optional): load a -pretrained- model instead of constructing one
+        
+        
+        Parameters for XGBoost
+        ----------------------
+        Check XGBoost docs for more arguments. Any extra argument is directly passed to XGBoosts
+        n_estimators: int
+            (optional): number of trees in the ensemble (only when model=None is used)
+        max_depth: int
+            (optional): maximum depth of each tree in the ensemble (only when model=None is used)
+        tree_method: int
+            (optional): method to use for training of the trees in the ensemble (only when model=None is used)
+
 
         (model_kwargs)
             arguments to pass to XGBRegressor for construction (only when model=None is used)
@@ -255,19 +264,17 @@ class Emulator:
 
         if model is None:
             # Use an XGB Regression ensemble
+            # Hyperopt
             xgb_params = {
-                'colsample_bytree': 0.7,
-                'learning_rate': 0.25,
-                'max_depth': 5,
-                'min_child_weight': 3,
-                'subsample': 0.9718261507246835,
-                'n_estimators': n_estimators,
-                'tree_method': tree_method,
+                'max_depth': 10,
+                'n_estimators': 50,
+                'tree_method': 'hist',
                 'eval_metric': 'rmse',
                 'early_stopping_rounds': 10,
             }
             xgb_params.update(model_kwargs)
             self.model = xg.XGBRegressor(**xgb_params)
+
         elif model is not None:
             # Use provided model (needs to be sklearn compatible)
             self.model = model
@@ -304,7 +311,10 @@ class Emulator:
         y_train = self.output_scaling(self.y_train)
         y_test = self.output_scaling(self.y_test)
 
-        self.model.fit(X_train, y_train, eval_set=[(X_train, y_train), (X_test, y_test)], *args, **kwargs)
+        if isinstance(self.model, xg.XGBRegressor):
+            self.model.fit(X_train, y_train, eval_set=[(X_train, y_train), (X_test, y_test)], *args, **kwargs)
+        else:
+            self.model.fit(X_train, y_train, *args, **kwargs)
 
         if hasattr(self, "_model_filename") and callable(getattr(self.model, "save_model", None)):
             print(f"Saving model to {self._model_filename}")
