@@ -266,7 +266,7 @@ class Emulator:
             # Use an XGB Regression ensemble
             # Hyperopt
             xgb_params = {
-                'max_depth': 10,
+                'max_depth': 8,
                 'n_estimators': 50,
                 'tree_method': 'hist',
                 'eval_metric': 'rmse',
