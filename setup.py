@@ -25,6 +25,7 @@ setuptools.setup(
         "numpy",
         "matplotlib",
         "pyyaml",
-        "tqdm"
+        "tqdm",
+        "h5py"
     ]
 )

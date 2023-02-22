@@ -1,8 +1,11 @@
+import os.path
+
 import numpy as np
 from .mix import CombineOpacIndividual
 from scipy.stats import qmc
 import xgboost as xg
 from sklearn.model_selection import train_test_split
+import h5py
 
 DEFAULT_PRANGE = (1e-6, 1000)
 DEFAULT_TRANGE = (100, 10000)
@@ -43,9 +46,37 @@ def default_inv_output_scaling(y):
     return 10**y
 
 
+class DataIO:
+    def __init__(self, filename):
+        """Setup the IO class"""
+        self.filename = filename
+
+    def load(self):
+        """load data"""
+        if not os.path.exists(self.filename):
+            raise FileNotFoundError('we could not load the data, because it doesnt exist.')
+
+        with h5py.File(self.filename, "r") as f:
+            input_data = np.asarray(f['input'])
+            mix = np.asarray(f['mix'])
+            split_seed = int(f['mix'].attrs['split_seed'])
+            test_size = float(f['mix'].attrs['test_size'])
+
+        return mix, input_data, split_seed, test_size
+
+    def write_out(self, mix, input_data, split_seed, test_size):
+        """write data"""
+        with h5py.File(self.filename, "w") as f:
+            inp_ds = f.create_dataset("input", input_data.shape, dtype=input_data.dtype)
+            mix_ds = f.create_dataset("mix", mix.shape, dtype=input_data.dtype)
+            mix_ds.attrs['split_seed'] = split_seed
+            mix_ds.attrs['test_size'] = test_size
+            mix_ds[...] = mix
+            inp_ds[...] = input_data
+
 
 class Emulator:
-    def __init__(self, opac, prange_opacset=DEFAULT_PRANGE, trange_opacset=DEFAULT_TRANGE):
+    def __init__(self, opac, prange_opacset=DEFAULT_PRANGE, trange_opacset=DEFAULT_TRANGE, filename_data=None):
         """
         Construct the emulator class.
 
@@ -57,6 +88,8 @@ class Emulator:
             (optional): the range to which the reader should interpolate the pressure grid to
         trange_opacset: (lower, upper)
             (optional): the range to which the reader should interpolate the temperature grid to
+        filename_data: str
+            A filename, used to save the training and testing data to
         """
         self.opac = opac
 
@@ -72,10 +105,14 @@ class Emulator:
         self.output_scaling = default_output_scaling
         self.inv_output_scaling = default_inv_output_scaling
 
+        self._input_dim = int(self.opac.ls + 2)
+
         self._has_input = False
         self._has_mix = False
         self._has_model = False
         self._is_trained = False
+
+        self._io = DataIO(filename=filename_data)
 
     def setup_scaling(self, input_scaling = None, output_scaling = None, inv_output_scaling = None):
         """
@@ -89,7 +126,7 @@ class Emulator:
         if inv_output_scaling is not None:
             self.inv_output_scaling = inv_output_scaling
 
-    def setup_sampling_grid(self, batchsize=524288, bounds={}, use_sobol=True, filename=None, load=False):
+    def setup_sampling_grid(self, batchsize=524288, bounds={}, use_sobol=True):
         """
         Setup the sampling grid. Sampling along MMR and pressure is in logspace.
         Sampling along temperature is in linspace.
@@ -107,10 +144,6 @@ class Emulator:
             and opac_mixer.emulator.DEFAULT_TRANGE for temperautre for all missing values
         use_sobol: bool
             Use sobol sampling. If false, a uniform sampling is used instead.
-        filename: str
-            A filename, used to save the input data to
-        load: bool
-            Load the input_data instead of computing it
 
         Returns
         -------
@@ -119,16 +152,6 @@ class Emulator:
             Shape: [..., [mmr_{0,i}, .., mmr_{ls,i}, p_i, T_i], ...]
         """
         # make sure the filename comes without the npy suffix
-        filename = filename.replace('.npy', '')
-
-        if filename is not None and load:
-            input_data = np.load(f"{filename}.npy")
-            self._check_input_data(input_data)
-            self.batchsize = input_data.shape[0]
-            self.input_data = input_data
-            self._has_input = True
-            return self.input_data
-
         self.batchsize = batchsize
 
         l_bounds = []
@@ -148,32 +171,28 @@ class Emulator:
         l_bounds.extend([low_p, low_T])
         u_bounds.extend([high_p, high_T])
 
-        dim = int(self.opac.ls + 2)
-
         if use_sobol:
             # Sample along the sobol sequence
             if np.log2(self.batchsize) % 1 != 0:
                 raise ValueError("Sobol sampling requires a batchsize given by a power of 2")
 
-            if self.batchsize < 2 ** dim:
+            if self.batchsize < 2 ** self._input_dim:
                 print(
-                    f'WARNING: sobol sampling might not have enough data. You should use a batchsize of minimum: {2 ** dim}')
+                    f'WARNING: sobol sampling might not have enough data. You should use a batchsize of minimum: {2 ** self._input_dim}')
 
-            sampler = qmc.Sobol(d=self.opac.ls + 2, scramble=False)
+            sampler = qmc.Sobol(d=self._input_dim, scramble=False)
             sample = sampler.random(self.batchsize)
         else:
             # Use a standard uniform distribution instead
-            sample = np.random.uniform(low=0.0, high=1.0, size=(batchsize, dim))
+            sample = np.random.uniform(low=0.0, high=1.0, size=(batchsize, self._input_dim))
 
         # Scale the sampling to the actual bounds
-        self.input_data = np.empty((batchsize, dim))
+        # Note: We use loguniform like scaling for mmrs + pressure and a uniform like scaling for the temperature (last column/feature)
+        self.input_data = np.empty((batchsize, self._input_dim))
         self.input_data[:, :-1] = np.exp(sample[:, :-1] * (np.log(u_bounds)[np.newaxis, :-1]-np.log(l_bounds)[np.newaxis, :-1]) + np.log(l_bounds)[np.newaxis, :-1])
         self.input_data[:, -1] = sample[:, -1] * (u_bounds[-1]-l_bounds[-1]) + l_bounds[-1]
 
         self._check_input_data(self.input_data)
-
-        if filename is not None:
-            np.save(f"{filename}.npy", self.input_data)
 
         self._has_input = True
 
@@ -181,11 +200,11 @@ class Emulator:
 
     def _check_input_data(self, input_data):
         shape = input_data.shape
-        if len(shape) != 2 or shape[1] != self.opac.ls + 2:
+        if len(shape) != 2 or shape[1] != self._input_dim:
             raise ValueError('input data does not match')
         assert (input_data >= 0).all(), "We need positive input data!"
 
-    def setup_mix(self, test_size=0.2, filename=None, do_parallel=True, load=False, **split_kwargs):
+    def setup_mix(self, test_size=0.2, split_seed =None, do_parallel=True):
         """
         Setup the mixer and generate the training and testdata.
 
@@ -193,30 +212,77 @@ class Emulator:
         ----------
         test_size: float
             fraction of data used for testing
-        filename: str
-            A filename, used to save the mixed crosssections to.
-        load: bool
-            Load the mixed croessections instead of computing them
+        split_seed: int
+            A seed to be used for shuffling training and test data before splitting
+        do_parallel:
+            If you want to create the data in parallel or not
         """
         if not self._has_input:
             raise AttributeError('we do not have input yet. Run setup_sampling_grid first.')
 
         # make sure the filename comes without the npy suffix
-        filename = filename.replace('.npy', '')
-
-        if not load:
-            if do_parallel:
-                mix = self.mixer.add_batch_parallel(self.input_data).reshape(
-                    (self.batchsize, self.opac.lf[0] * self.opac.lg[0]))
-            else:
-                mix = self.mixer.add_batch(self.input_data).reshape(
-                    (self.batchsize, self.opac.lf[0] * self.opac.lg[0]))
+        if do_parallel:
+            mix = self.mixer.add_batch_parallel(self.input_data).reshape(
+                (self.batchsize, self.opac.lf[0] * self.opac.lg[0]))
         else:
-            mix = np.load(f"{filename}.npy")
+            mix = self.mixer.add_batch(self.input_data).reshape(
+                (self.batchsize, self.opac.lf[0] * self.opac.lg[0]))
 
-        if filename is not None and not load:
-            np.save(f"{filename}.npy", mix)
+        if split_seed is None:
+            split_seed = np.random.randint(int(1e10))
 
+        self._do_split(mix, split_seed, test_size, use_split_seed=True)
+
+        if hasattr(self, "_io"):
+            self._io.write_out(mix, self.input_data, split_seed, test_size)
+
+        self._has_mix = True
+
+        return self.X_train, self.X_test, self.y_train, self.y_test
+
+    def load_data(self, filename=None, test_size=None, split_seed=None, use_split_seed=True):
+        """
+        Load the training and test data from a h5 file.
+
+        Parameters
+        ----------
+        filename: str (optional)
+            Can be set either here or in the constructor
+        test_size: float (optional)
+            use a different test size than the one loaded
+        split_seed: int (optional)
+            use a different seed to shuffle data before spliting training and testing data
+        use_split_seed: bool (optional)
+            if true, it will just use the provided or loaded split seed, else it will create a new random one
+        """
+
+        if not hasattr(self, '_io') and filename is None:
+            raise ValueError('we have no clue where we could get the data from. Set a filename either in this method or the constructor')
+
+        if filename is not None:
+            self._io = DataIO(filename=filename)
+
+        mix, input_data, split_seed_l, test_size_l = self._io.load()
+
+        self.input_data = input_data
+        self.batchsize = input_data.shape[0]
+
+        self._check_input_data(self.input_data)
+
+        if test_size is None:
+            test_size = test_size_l
+        if split_seed is None:
+            split_seed = split_seed_l
+
+        self._do_split(mix, split_seed, test_size, use_split_seed)
+
+        self._has_input = True
+        self._has_mix = True
+
+        return self.X_train, self.X_test, self.y_train, self.y_test
+
+    def _do_split(self, mix, split_seed, test_size, use_split_seed=True):
+        """Do the actual split of training and testing data."""
         if (mix <= 0).any():
             raise ValueError('We found negative crosssections. Something is wrong here.')
 
@@ -224,12 +290,8 @@ class Emulator:
             self.input_data,
             mix,
             test_size=test_size,
-            **split_kwargs
+            random_state=split_seed if use_split_seed else None,
         )
-
-        self._has_mix = True
-
-        return self.X_train, self.X_test, self.y_train, self.y_test
 
     def setup_model(self, model=None, filename=None, load=False, **model_kwargs):
         """
@@ -263,11 +325,9 @@ class Emulator:
             raise AttributeError('we do not have a mix to work with yet. Run setup_sampling_grid and setup_mix first.')
 
         if model is None:
-            # Use an XGB Regression ensemble
-            # Hyperopt
             xgb_params = {
                 'max_depth': 8,
-                'n_estimators': 50,
+                'n_estimators': 20,
                 'tree_method': 'hist',
                 'eval_metric': 'rmse',
                 'early_stopping_rounds': 10,
@@ -347,17 +407,16 @@ class Emulator:
         if not self._is_trained:
             raise AttributeError('we do not have a trained model yet. Run setup_sampling_grid, setup_mix and setup_model and fit first.')
 
-        if len(X.shape) != 2 or X.shape[1] != self.opac.ls + 2:
+        if len(X.shape) != 2 or X.shape[1] != self._input_dim:
             raise ValueError('input data does not match')
 
         # fit the model on the training dataset
         y_predict = self.inv_output_scaling(self.model.predict(self.input_scaling(X), *args, **kwargs))
         return self.reshape(y_predict, shape=shape, prt_freq=prt_freq)
 
-
     def reshape(self, y, shape = 'opac', prt_freq=None):
         """
-        Train the model.
+        Reshape the data to match a certain shape
 
         Parameters
         ----------
@@ -395,11 +454,3 @@ class Emulator:
             return y_prt
         else:
             raise NotImplementedError('shape not available.')
-
-    def plot_ktable(self):
-        # TODO: Some stuff here
-        pass
-
-    def calc_score(self):
-        # TODO: Some stuff here
-        pass
