@@ -229,7 +229,7 @@ class Emulator:
                 (self.batchsize, self.opac.lf[0] * self.opac.lg[0]))
 
         if split_seed is None:
-            split_seed = np.random.randint(int(1e10))
+            split_seed = np.random.randint(2**32 - 1)
 
         self._do_split(mix, split_seed, test_size, use_split_seed=True)
 
