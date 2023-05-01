@@ -19,13 +19,14 @@ setuptools.setup(
     install_requires=[
         "scikit-learn",
         "numba",
-        "xgboost",
         "hyperopt",
         "scipy",
         "numpy",
         "matplotlib",
         "pyyaml",
         "tqdm",
-        "h5py"
+        "h5py",
+        "tensorflow",
+        "MITgcmutils"
     ]
 )

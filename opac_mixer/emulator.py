@@ -1,11 +1,20 @@
 import os.path
 
 import numpy as np
-from .mix import CombineOpacIndividual
-from scipy.stats import qmc
-import xgboost as xg
+from .mix import CombineOpacGrid
+from .read import ReadOpac
+from .callbacks import CustomCallback
 from sklearn.model_selection import train_test_split
+from sklearn.metrics import mean_squared_error, mean_squared_log_error, r2_score
 import h5py
+from tensorflow import keras
+from tensorflow.keras import layers
+import tensorflow as tf
+from sklearn.linear_model._base import LinearModel
+from MITgcmutils import wrmds
+import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
+
 
 DEFAULT_PRANGE = (1e-6, 1000)
 DEFAULT_TRANGE = (100, 10000)
@@ -28,22 +37,23 @@ DEFAULT_MMR_RANGES = {
     'FeH': (1e-50, 0.000203477300968298)
 }
 
-const_c = 2.99792458e10  # speed of light in cgs
 
-
-def default_input_scaling(x):
+def default_input_scaling(X):
     """Default function used for input scaling"""
-    return x
+    xsum = X.sum(axis=-1)
+    return np.log(X / xsum[:, :, None])
 
 
-def default_output_scaling(y):
+def default_output_scaling(X, y):
     """Default function used for output scaling"""
-    return np.log10(y)
+    xsum = X.sum(axis=-1)
+    return np.log(y / xsum)
 
 
-def default_inv_output_scaling(y):
+def default_inv_output_scaling(X, y):
     """Default function used to recover output scaling"""
-    return 10**y
+    xsum = X.sum(axis=-1)
+    return np.exp(y) * xsum
 
 
 class DataIO:
@@ -83,7 +93,7 @@ class Emulator:
         Parameters
         ----------
         opac: opac_mixer.read.ReadOpac
-            the input opacity reader. Can be setup, but does not need to. Will do the setup itself otherwise.
+            a list of input opacity readers. Can be setup, but does not need to. Will do the setup itself otherwise.
         prange_opacset: (lower, upper)
             (optional): the range to which the reader should interpolate the pressure grid to
         trange_opacset: (lower, upper)
@@ -91,21 +101,35 @@ class Emulator:
         filename_data: str
             A filename, used to save the training and testing data to
         """
-        self.opac = opac
+        if isinstance(opac, list):
+            assert all([isinstance(opac_i, ReadOpac) for opac_i in opac])
+        elif isinstance(opac, ReadOpac):
+            self.opac = [opac]
+        else:
+            raise ValueError("opac needs to be either a list of ReadOpac or a ReadOpac instance")
 
-        if not self.opac.read_done:
-            self.opac.read_opac()
-        if not self.opac.interp_done:
-            self.opac.setup_temp_and_pres(pres=np.logspace(np.log(prange_opacset[0]),np.log(prange_opacset[1]), 100),
-                                          temp=np.linspace(*trange_opacset, 100))
-
-        self.mixer = CombineOpacIndividual(self.opac)
+        for opac in self.opac:
+            if not opac.read_done:
+                opac.read_opac()
+            if not opac.interp_done:
+                opac.setup_temp_and_pres(pres=np.logspace(np.log(prange_opacset[0]),np.log(prange_opacset[1]), 5),
+                                          temp=np.linspace(*trange_opacset, 5))
 
         self.input_scaling = default_input_scaling
         self.output_scaling = default_output_scaling
         self.inv_output_scaling = default_inv_output_scaling
 
-        self._input_dim = int(self.opac.ls + 2)
+        self.mixer = [CombineOpacGrid(opac) for opac in self.opac]
+
+        ls = [int(opac.ls) for opac in self.opac]
+        assert np.diff(ls) == 0.0, 'we need the same number of species for all ReadOpac instances'
+
+        lg = [int(opac.lg[0]) for opac in self.opac]
+        assert np.diff(lg) == 0.0, 'we need the same number of g points for all ReadOpac instances'
+
+        self._lg = lg[0]
+        self._ls = ls[0]
+        self._input_dim = (self._lg, self._ls)
 
         self._has_input = False
         self._has_mix = False
@@ -126,7 +150,12 @@ class Emulator:
         if inv_output_scaling is not None:
             self.inv_output_scaling = inv_output_scaling
 
-    def setup_sampling_grid(self, batchsize=524288, bounds={}, use_sobol=True):
+        if hasattr(self, "X_train"):
+            np.testing.assert_allclose(self.inv_output_scaling(self.X_train, self.output_scaling(self.X_train, self.y_train)), self.y_train)
+        if hasattr(self, "X_test"):
+            np.testing.assert_allclose(self.inv_output_scaling(self.X_test, self.output_scaling(self.X_test, self.y_test)), self.y_test)
+
+    def setup_sampling_grid(self, approx_batchsize=524288, bounds={}):
         """
         Setup the sampling grid. Sampling along MMR and pressure is in logspace.
         Sampling along temperature is in linspace.
@@ -152,45 +181,45 @@ class Emulator:
             Shape: [..., [mmr_{0,i}, .., mmr_{ls,i}, p_i, T_i], ...]
         """
         # make sure the filename comes without the npy suffix
-        self.batchsize = batchsize
+        self._batchsize_resh = []
+        self._batchsize = []
 
-        l_bounds = []
-        u_bounds = []
-        for sp in self.opac.spec:
-            if sp not in DEFAULT_MMR_RANGES and sp not in bounds:
-                raise ValueError(f"We miss the bounds for {sp}.")
+        input_list = []
+        for opac in self.opac:
+            batchsize = approx_batchsize // opac.lp[0] // opac.lt[0] // opac.lf[0]
+            batchsize_resh = batchsize * opac.lp[0] * opac.lt[0] * opac.lf[0]
+            self._batchsize_resh.append(batchsize_resh)
+            self._batchsize.append(batchsize)
 
-            default_l, default_u = DEFAULT_MMR_RANGES.get(sp)
-            l, u = bounds.get(sp, (default_l, default_u))
-            l_bounds.append(np.maximum(l, 1.0e-50))
-            u_bounds.append(u)
+            l_bounds = []
+            u_bounds = []
+            for sp in opac.spec:
+                if sp not in DEFAULT_MMR_RANGES and sp not in bounds:
+                    raise ValueError(f"We miss the bounds for {sp}.")
 
-        low_p, high_p = bounds.get("p", DEFAULT_PRANGE)
-        low_T, high_T = bounds.get("T", DEFAULT_TRANGE)
+                default_l, default_u = DEFAULT_MMR_RANGES.get(sp)
+                l, u = bounds.get(sp, (default_l, default_u))
+                l_bounds.append(np.maximum(l, 1.0e-20))
+                u_bounds.append(u)
 
-        l_bounds.extend([low_p, low_T])
-        u_bounds.extend([high_p, high_T])
+            # Use a standard uniform distribution
+            sample = np.random.uniform(low=0.0, high=1.0,
+                                       size=(batchsize, self._ls, opac.lp[0], opac.lt[0]))
 
-        if use_sobol:
-            # Sample along the sobol sequence
-            if np.log2(self.batchsize) % 1 != 0:
-                raise ValueError("Sobol sampling requires a batchsize given by a power of 2")
+            # Scale the sampling to the actual bounds
+            # Note: We use loguniform like scaling for mmrs
 
-            if self.batchsize < 2 ** self._input_dim:
-                print(
-                    f'WARNING: sobol sampling might not have enough data. You should use a batchsize of minimum: {2 ** self._input_dim}')
+            abus = np.exp(sample[:, :, :, :] * (
+                        np.log(u_bounds)[np.newaxis, :, np.newaxis, np.newaxis] - np.log(l_bounds)[np.newaxis, :,
+                                                                                  np.newaxis, np.newaxis]) + np.log(
+                l_bounds)[np.newaxis, :, np.newaxis, np.newaxis])
 
-            sampler = qmc.Sobol(d=self._input_dim, scramble=False)
-            sample = sampler.random(self.batchsize)
-        else:
-            # Use a standard uniform distribution instead
-            sample = np.random.uniform(low=0.0, high=1.0, size=(batchsize, self._input_dim))
+            weighted_kappas = abus[:, :, :, :, np.newaxis, np.newaxis] * opac.kcoeff[np.newaxis, ...]
+            weighted_kappas = weighted_kappas.transpose((0, 2, 3, 4, 1, 5))
 
-        # Scale the sampling to the actual bounds
-        # Note: We use loguniform like scaling for mmrs + pressure and a uniform like scaling for the temperature (last column/feature)
-        self.input_data = np.empty((batchsize, self._input_dim))
-        self.input_data[:, :-1] = np.exp(sample[:, :-1] * (np.log(u_bounds)[np.newaxis, :-1]-np.log(l_bounds)[np.newaxis, :-1]) + np.log(l_bounds)[np.newaxis, :-1])
-        self.input_data[:, -1] = sample[:, -1] * (u_bounds[-1]-l_bounds[-1]) + l_bounds[-1]
+            input_list.append(weighted_kappas.reshape(batchsize_resh, opac.ls, opac.lg[0]).transpose(0, 2, 1))
+
+        self.input_data = np.array(input_list).reshape(-1, *self._input_dim)
 
         self._check_input_data(self.input_data)
 
@@ -200,7 +229,7 @@ class Emulator:
 
     def _check_input_data(self, input_data):
         shape = input_data.shape
-        if len(shape) != 2 or shape[1] != self._input_dim:
+        if len(shape) != 3 or shape[1:] != self._input_dim:
             raise ValueError('input data does not match')
         assert (input_data >= 0).all(), "We need positive input data!"
 
@@ -220,21 +249,28 @@ class Emulator:
         if not self._has_input:
             raise AttributeError('we do not have input yet. Run setup_sampling_grid first.')
 
-        # make sure the filename comes without the npy suffix
-        if do_parallel:
-            mix = self.mixer.add_batch_parallel(self.input_data).reshape(
-                (self.batchsize, self.opac.lf[0] * self.opac.lg[0]))
-        else:
-            mix = self.mixer.add_batch(self.input_data).reshape(
-                (self.batchsize, self.opac.lf[0] * self.opac.lg[0]))
-
         if split_seed is None:
-            split_seed = np.random.randint(2**32 - 1)
+            split_seed = np.random.randint(2 ** 32 - 1)
 
-        self._do_split(mix, split_seed, test_size, use_split_seed=True)
+        # make sure the filename comes without the npy suffix
+        mixes = []
+        for opac, mixer, batchsize, batchsize_resh in zip(self.opac, self.mixer, self._batchsize, self._batchsize_resh):
+            if do_parallel:
+                mix = mixer.add_batch_parallel(self.input_data).reshape(
+                    (batchsize, opac.lp[0], opac.lt[0], opac.lf[0], opac.lg[0]))
+            else:
+                mix = mixer.add_batch(self.input_data).reshape(
+                    (batchsize, opac.lp[0], opac.lt[0], opac.lf[0], opac.lg[0]))
+
+            mix = mix.reshape(batchsize_resh, self._lg)
+            mixes.append(mix)
+
+        mixes = np.array(mixes).reshape(-1, self._lg)
+
+        self._do_split(mixes, split_seed, test_size, use_split_seed=True)
 
         if hasattr(self, "_io"):
-            self._io.write_out(mix, self.input_data, split_seed, test_size)
+            self._io.write_out(mixes, self.input_data, split_seed, test_size)
 
         self._has_mix = True
 
@@ -265,8 +301,6 @@ class Emulator:
         mix, input_data, split_seed_l, test_size_l = self._io.load()
 
         self.input_data = input_data
-        self.batchsize = input_data.shape[0]
-
         self._check_input_data(self.input_data)
 
         if test_size is None:
@@ -293,55 +327,64 @@ class Emulator:
             random_state=split_seed if use_split_seed else None,
         )
 
-    def setup_model(self, model=None, filename=None, load=False, **model_kwargs):
+    def setup_model(self, model=None, filename=None, load=False, lr=0.1, hidden_units=None, **model_kwargs):
         """
         Setup the emulator model and train it.
 
         Parameters
         ----------
         model: sklearn compatible model
-            (optional): a model to learn. Needs to be contructed already. Use XGBRegressor by default
+            (optional): a model to learn. Needs to be contructed already. Use DeepSet by default
         filename: str or None
-            (opyional): A filename to save the model
+            (optional): A filename to save the model
         load: bool
             (optional): load a -pretrained- model instead of constructing one
         
-        
-        Parameters for XGBoost
-        ----------------------
-        Check XGBoost docs for more arguments. Any extra argument is directly passed to XGBoosts
-        n_estimators: int
-            (optional): number of trees in the ensemble (only when model=None is used)
-        max_depth: int
-            (optional): maximum depth of each tree in the ensemble (only when model=None is used)
-        tree_method: int
-            (optional): method to use for training of the trees in the ensemble (only when model=None is used)
 
+        Parameters for DeepSet
+        ----------------------
+        Check keras.compile docs for more arguments. Any extra argument is directly passed to keras.compile
+        lr: float
+            (optional): learning rate of optimizer (adam per default, change by setting optimizer=<name>)
+        hidden_units: int
+            (optional): number of hidden units in the decoder (per default equals number of g-points)
 
         (model_kwargs)
-            arguments to pass to XGBRegressor for construction (only when model=None is used)
+            arguments to pass to keras.compile for construction (only when model=None is used)
         """
         if not self._has_mix:
             raise AttributeError('we do not have a mix to work with yet. Run setup_sampling_grid and setup_mix first.')
 
         if model is None:
-            xgb_params = {
-                'max_depth': 8,
-                'n_estimators': 20,
-                'tree_method': 'hist',
-                'eval_metric': 'rmse',
-                'early_stopping_rounds': 10,
-            }
-            xgb_params.update(model_kwargs)
-            self.model = xg.XGBRegressor(**xgb_params)
+            if hidden_units is None:
+                hidden_units = self._lg
+
+            self.model = keras.Sequential([
+                layers.Input(shape=(self._lg, None)),
+                layers.Permute((2, 1), input_shape=(self._lg, None)),
+                layers.Dense(units=hidden_units, activation='relu', use_bias=False),
+                layers.Lambda(lambda x: tf.reduce_sum(x, axis=-2)),
+                layers.Dense(units=self._lg, activation='linear', use_bias=False),
+            ])
 
         elif model is not None:
+            print("WARNING: make sure your model is permutation invariant!")
             # Use provided model (needs to be sklearn compatible)
             self.model = model
 
+        if isinstance(model, keras.Model):
+            extra_model_kwargs = {
+                "optimizer": keras.optimizers.Adam(lr=lr),
+                "loss": "mean_squared_error",
+            }
+            extra_model_kwargs.update(model_kwargs)
+
+            model.compile(**extra_model_kwargs)
+            model.summary()
+
         if load:
             # Load model
-            self.model.load_model(filename)
+            keras.models.load_model(filename)
             self._is_trained = True
 
         if filename is not None and not load:
@@ -362,19 +405,25 @@ class Emulator:
             Whatever you want to pass to the model to fit
 
         """
+        fit_args = {}
+        if isinstance(self.model, keras.Model):
+            fit_args["epochs"] = 100
+            fit_args["batch_size"] = 32
+            fit_args["verbose"] = 0
+
+        fit_args.update(kwargs)
+
         if not self._has_model:
             raise AttributeError('we do not have a model yet. Run setup_sampling_grid, setup_mix and setup_model first.')
 
         # fit the model on the training dataset
         X_train = self.input_scaling(self.X_train)
-        X_test = self.input_scaling(self.X_test)
-        y_train = self.output_scaling(self.y_train)
-        y_test = self.output_scaling(self.y_test)
+        y_train = self.output_scaling(self.X_train, self.y_train)
 
-        if isinstance(self.model, xg.XGBRegressor):
-            self.model.fit(X_train, y_train, eval_set=[(X_train, y_train), (X_test, y_test)], *args, **kwargs)
+        if isinstance(self.model, keras.Model):
+            self.model.fit(X_train, y_train, callbacks=[CustomCallback(self), keras.callbacks.EarlyStopping(monitor='loss', patience=3)], **fit_args)
         else:
-            self.model.fit(X_train, y_train, *args, **kwargs)
+            self.model.fit(X_train.reshape(len(X_train),-1), y_train, *args, **kwargs)
 
         if hasattr(self, "_model_filename") and callable(getattr(self.model, "save_model", None)):
             print(f"Saving model to {self._model_filename}")
@@ -382,75 +431,198 @@ class Emulator:
 
         self._is_trained = True
 
-    def predict(self, X, shape='opac', prt_freq=None, *args, **kwargs):
+    def predict(self, X, *args, **kwargs):
         """
-        Train the model.
+        Predict using the trained model.
 
         Parameters
         ----------
         X: array like (num_samples, input_dim)
             The values you want predictions for
-        shape: str
-            The output shape for the predictions.
-            'opac': same shape as opac reader: (num_samples, lf, lg)
-            'same': native flat shape: (num_samples, lf*lg)
-            'prt': same as 'opac' but with reverse freq
-        prt_freq: array
-            Radtrans.freq array, only used for matching frequencies if shape=='prt'.
-            Note: This mode also requires self.opac.bin_center to be wavenumbers in cgs
         args:
             Whatever you want to pass to the model for prediction
         kwargs:
             Whatever you want to pass to the model for prediction
-
         """
-        if not self._is_trained:
-            raise AttributeError('we do not have a trained model yet. Run setup_sampling_grid, setup_mix and setup_model and fit first.')
-
-        if len(X.shape) != 2 or X.shape[1] != self._input_dim:
-            raise ValueError('input data does not match')
+        self._check_trained()
+        self._check_input_data(X)
 
         # fit the model on the training dataset
-        y_predict = self.inv_output_scaling(self.model.predict(self.input_scaling(X), *args, **kwargs))
-        return self.reshape(y_predict, shape=shape, prt_freq=prt_freq)
+        if isinstance(self,keras.Model):
+            return self.inv_output_scaling(X, self.model.predict(self.input_scaling(X), *args, **kwargs))
+        else:
+            return self.inv_output_scaling(X, self.model.predict(self.input_scaling(X).reshape(len(X),-1), *args, **kwargs))
 
-    def reshape(self, y, shape = 'opac', prt_freq=None):
+    def score(self, validation_set = None):
         """
-        Reshape the data to match a certain shape
+        Print some metrics for the training and test data.
 
         Parameters
         ----------
-        y: array like (num_samples, input_dim)
-            The y values you want to be reshaped
-        shape: str
-            The output shape for the predictions.
-            'opac': same shape as opac reader: (num_samples, lf, lg)
-            'same': native flat shape: (num_samples, lf*lg)
-            'prt': same as 'opac' but with reverse freq
-        prt_freq: array
-            Radtrans.freq array, only used for matching frequencies if shape=='prt'.
-            Note: This mode also requires self.opac.bin_center to be wavenumbers in cgs
-
-
-        Returns
-        -------
-        y: reshaped array
+        validation_set: list(X_test, y_test)
+            validation set to be used instead of (self.X_test, self.y_test)
         """
-        if shape == 'same':
-            return y
-
-        y_resh = y.reshape(y.shape[0], self.opac.lf[0], self.opac.lg[0])
-
-        if shape == 'opac':
-            return y_resh
-        elif shape == 'prt':
-            y_prt = np.empty((self.opac.lg[0], self.opac.lf[0], y.shape[0]))
-            if prt_freq is not None:
-                for freqi, freq in enumerate(self.opac.bin_center):
-                    idx = np.abs(prt_freq / const_c - freq).argmin()
-                    y_prt[:, idx, :] = y_resh[:, freqi, :].T
-            else:
-                raise ValueError('We need the frequencies from prt to match the prediction')
-            return y_prt
+        if validation_set is None:
+            X_test = self.X_test
+            y_test = self.y_test
         else:
-            raise NotImplementedError('shape not available.')
+            X_test = validation_set[0]
+            y_test = validation_set[1]
+            self._check_input_data(X_test)
+
+        self._check_trained()
+
+        y_p_test = self.predict(X_test)
+        y_p_train = self.predict(self.X_train)
+
+        train_mask = (self.y_train > 1e-45)
+        test_mask = (y_test > 1e-45)
+
+        log_err_out = (y_p_train[train_mask] > 0).all()
+
+        y_add_test = np.sum(X_test, axis=-1)
+        y_add_train = np.sum(self.X_train, axis=-1)
+
+        y_test_masked = y_test[test_mask]
+        y_train_masked = self.y_train[train_mask]
+        y_p_test_masked = y_p_test[test_mask]
+        y_p_train_masked = y_p_train[train_mask]
+        y_add_test_masked = y_add_test[test_mask]
+        y_add_train_masked = y_add_train[train_mask]
+
+        e_add_test = np.sqrt(mean_squared_error(y_test_masked, y_add_test_masked))
+        e_add_train = np.sqrt(mean_squared_error(y_train_masked, y_add_train_masked))
+        e_p_test = np.sqrt(mean_squared_error(y_test_masked, y_p_test_masked))
+        e_p_train = np.sqrt(mean_squared_error(y_train_masked, y_p_train_masked))
+
+        if log_err_out:
+            e_log_add_test = np.sqrt(mean_squared_log_error(y_test_masked, y_add_test_masked))
+            e_log_add_train = np.sqrt(mean_squared_log_error(y_train_masked, y_add_train_masked))
+            e_log_p_test = np.sqrt(mean_squared_log_error(y_test_masked, y_p_test_masked))
+            e_log_p_train = np.sqrt(mean_squared_log_error(y_train_masked, y_p_train_masked))
+
+        r2_add_test = r2_score(y_test_masked, y_add_test_masked)
+        r2_add_train = r2_score(y_train_masked, y_add_train_masked)
+        r2_p_test = r2_score(y_test_masked, y_p_test_masked)
+        r2_p_train = r2_score(y_train_masked, y_p_train_masked)
+
+        if log_err_out:
+            r2_log_add_test = r2_score(np.log(y_test_masked), np.log(y_add_test_masked))
+            r2_log_add_train = r2_score(np.log(y_train_masked), np.log(y_add_train_masked))
+            r2_log_p_test = r2_score(np.log(y_test_masked), np.log(y_p_test_masked))
+            r2_log_p_train = r2_score(np.log(y_train_masked), np.log(y_p_train_masked))
+
+        print("test           (add, model): {:.2e}, {:.2e}".format(e_add_test, e_p_test))
+        print("train          (add, model): {:.2e}, {:.2e}".format(e_add_train, e_p_train))
+        if log_err_out:
+            print("log test       (add, model): {:.2e}, {:.2e}".format(e_log_add_test, e_log_p_test))
+            print("log train      (add, model): {:.2e}, {:.2e}".format(e_log_add_train, e_log_p_train))
+        print("r2 test        (add, model): {:.2e}, {:.2e}".format(r2_add_test, r2_p_test))
+        print("r2 train       (add, model): {:.2e}, {:.2e}".format(r2_add_train, r2_p_train))
+        if log_err_out:
+            print("log r2 test    (add, model): {:.2e}, {:.2e}".format(r2_log_add_test, r2_log_p_test))
+            print("log r2 train   (add, model): {:.2e}, {:.2e}".format(r2_log_add_train, r2_log_p_train))
+
+    def _check_trained(self):
+        """Just a random check if the model has been trained or not."""
+        if not self._is_trained:
+            raise AttributeError(
+                'we do not have a trained model yet. Run setup_sampling_grid, setup_mix and setup_model and fit first.')
+
+    def export(self, path, format='exorad'):
+        """
+        Export the weights
+
+        Parameters
+        ----------
+        path: str
+            path where the weights should be stored
+        format: str
+            the format in which the weights should be stored. Can be either exorad or numpy.
+        """
+        self._check_trained()
+        if isinstance(self.model, keras.Model):
+            for i, weights in enumerate(self.model.weights):
+                if format == 'np':
+                    np.save(f'{path}/ml_coeff_{i}.npy', weights.numpy().T)
+                elif format == 'exorad':
+                    wrmds(f'{path}/ml_coeff_{i}', weights.numpy().T,
+                          dataprec="float64")
+
+        else:
+            raise NotImplementedError('not implemented for the type of model used')
+
+    def plot_predictions(self, validation_set=None):
+        """
+        Plot the predictions vs the true values
+
+        Parameters
+        ----------
+        validation_set: list(X_test, y_test)
+            validation set to be used instead of (self.X_test, self.y_test)
+        """
+
+
+        if validation_set is None:
+            X_test = self.X_test
+            y_test = self.y_test
+        else:
+            X_test = validation_set[0]
+            self._check_input_data(X_test)
+            y_test = validation_set[1]
+
+        y_p_test = self.predict(X_test)
+        y_add_test = np.sum(X_test, axis=-1)
+
+        for index in range(y_p_test.shape[-1]):
+            fig, axes = plt.subplots(1, 2, sharex=True, sharey=True)
+
+            axes[0].plot(y_add_test[:, index], y_test[:, index], 'bo', ms=0.01, linestyle="None")
+            axes[1].plot(y_p_test[:, index], y_test[:, index], 'ro', ms=0.01, linestyle="None")
+            fig.suptitle(f'g index = {index}')
+            axes[0].set_title('simple sum')
+            axes[1].set_title('model predictions')
+
+            for ax in axes:
+                ax.plot([y_p_test[:, index].min(), y_p_test[:, index].max()],
+                        [y_p_test[:, index].min(), y_p_test[:, index].max()], color='gray', ls='--')
+                ax.set_xscale('log')
+                ax.set_yscale('log')
+                ax.set_ylabel('true')
+                ax.set_xlabel('predicted')
+                ax.set_aspect('equal')
+
+            plt.show()
+
+    def plot_weights(self, do_log=True):
+        """
+        Plot the weights of the model
+
+        Parameters
+        ----------
+        do_log: bool
+            do log scaling in the colorbar
+        """
+        self._check_trained()
+        if isinstance(self.model, keras.Model):
+            for i, weights in enumerate(self.model.weights):
+                if do_log:
+                    if (weights.numpy() < 0).any():
+                        vmax = abs(weights.numpy()).max()
+                        vmin = - vmax
+                        linthr = abs(weights.numpy()).min()
+                        # linthr = 1e-1
+                        norm = mcolors.SymLogNorm(linthresh=linthr, vmin=vmin, vmax=vmax)
+                        cmap = 'BrBG'
+                    else:
+                        norm = mcolors.LogNorm()
+                        cmap = 'viridis'
+                else:
+                    norm = mcolors.Normalize()
+                    cmap = 'viridis'
+
+                img = plt.imshow(weights.numpy(), norm=norm, cmap=cmap)
+                plt.title(f'weight {i}')
+
+                plt.colorbar(img)
+            plt.show()
