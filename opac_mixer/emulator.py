@@ -1,59 +1,40 @@
 import os.path
 
-import numpy as np
-from .mix import CombineOpacGrid
-from .read import ReadOpac
-from .callbacks import CustomCallback
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import mean_squared_error, mean_squared_log_error, r2_score
 import h5py
-from tensorflow import keras
-from tensorflow.keras import layers
-import tensorflow as tf
-from sklearn.linear_model._base import LinearModel
-from MITgcmutils import wrmds
-import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
+import matplotlib.pyplot as plt
+import numpy as np
+from MITgcmutils import wrmds
+from sklearn.metrics import mean_squared_error, mean_squared_log_error, r2_score
+from sklearn.model_selection import train_test_split
+from tensorflow import keras
 
+from .callbacks import CustomCallback
+from .mix import CombineOpacGrid
+from .models import get_deepset
+from .read import ReadOpac
+from .scalings import default_input_scaling, default_output_scaling, default_inv_output_scaling
 
-DEFAULT_PRANGE = (1e-6, 1000)
-DEFAULT_TRANGE = (100, 10000)
+DEFAULT_PRANGE = (1e-6, 1000, 10)
+DEFAULT_TRANGE = (100, 10000, 10)
 
 DEFAULT_MMR_RANGES = {
-    'CO': (1e-50, 0.005522337070205542),
+    'CO': (1e-30, 0.005522337070205542),
     'H2O': (3.509581940975492e-22, 0.0057565911404275204),
-    'HCN': (1e-50, 9.103077483740115e-05),
-    'C2H2,acetylene': (1e-50, 1.581540423097846e-05),
-    'CH4': (2.289698067595399e-31, 0.0031631031028604537),
-    'PH3': (1e-50, 6.401082202603451e-06),
-    'CO2': (1e-50, 0.00015319944152172055),
+    'HCN': (1e-30, 9.103077483740115e-05),
+    'C2H2,acetylene': (1e-30, 1.581540423097846e-05),
+    'CH4': (1e-30, 0.0031631031028604537),
+    'PH3': (1e-30, 6.401082202603451e-06),
+    'CO2': (1e-30, 0.00015319944152172055),
     'NH3': (3.8119208513224578e-25, 0.00084362326521647),
     'H2S': (2.0093762682408387e-18, 0.0003290905470710346),
-    'VO': (1e-50, 1.6153195092178982e-07),
-    'TiO': (1e-50, 3.925184850731112e-06),
-    'Na': (1e-50, 2.524986071526357e-05),
-    'K': (1e-50, 1.932224843084919e-06),
-    'SiO': (1e-50, 0.0010448970102509476),
-    'FeH': (1e-50, 0.000203477300968298)
+    'VO': (1e-30, 1.6153195092178982e-07),
+    'TiO': (1e-30, 3.925184850731112e-06),
+    'Na': (1e-30, 2.524986071526357e-05),
+    'K': (1e-30, 1.932224843084919e-06),
+    'SiO': (1e-30, 0.0010448970102509476),
+    'FeH': (1e-30, 0.000203477300968298)
 }
-
-
-def default_input_scaling(X):
-    """Default function used for input scaling"""
-    xsum = X.sum(axis=-1)
-    return np.log(X / xsum[:, :, None])
-
-
-def default_output_scaling(X, y):
-    """Default function used for output scaling"""
-    xsum = X.sum(axis=-1)
-    return np.log(y / xsum)
-
-
-def default_inv_output_scaling(X, y):
-    """Default function used to recover output scaling"""
-    xsum = X.sum(axis=-1)
-    return np.exp(y) * xsum
 
 
 class DataIO:
@@ -94,15 +75,16 @@ class Emulator:
         ----------
         opac: opac_mixer.read.ReadOpac
             a list of input opacity readers. Can be setup, but does not need to. Will do the setup itself otherwise.
-        prange_opacset: (lower, upper)
+        prange_opacset: (lower, upper, num_points)
             (optional): the range to which the reader should interpolate the pressure grid to
-        trange_opacset: (lower, upper)
+        trange_opacset: (lower, upper, num_points)
             (optional): the range to which the reader should interpolate the temperature grid to
         filename_data: str
             A filename, used to save the training and testing data to
         """
         if isinstance(opac, list):
             assert all([isinstance(opac_i, ReadOpac) for opac_i in opac])
+            self.opac = opac
         elif isinstance(opac, ReadOpac):
             self.opac = [opac]
         else:
@@ -112,8 +94,9 @@ class Emulator:
             if not opac.read_done:
                 opac.read_opac()
             if not opac.interp_done:
-                opac.setup_temp_and_pres(pres=np.logspace(np.log(prange_opacset[0]),np.log(prange_opacset[1]), 5),
-                                          temp=np.linspace(*trange_opacset, 5))
+                opac.setup_temp_and_pres(
+                    pres=np.logspace(np.log(prange_opacset[0]), np.log(prange_opacset[1]), prange_opacset[2]),
+                    temp=np.linspace(*trange_opacset))
 
         self.input_scaling = default_input_scaling
         self.output_scaling = default_output_scaling
@@ -122,10 +105,11 @@ class Emulator:
         self.mixer = [CombineOpacGrid(opac) for opac in self.opac]
 
         ls = [int(opac.ls) for opac in self.opac]
-        assert np.diff(ls) == 0.0, 'we need the same number of species for all ReadOpac instances'
-
         lg = [int(opac.lg[0]) for opac in self.opac]
-        assert np.diff(lg) == 0.0, 'we need the same number of g points for all ReadOpac instances'
+
+        if len(ls)>1:
+            assert np.diff(ls) == 0.0, 'we need the same number of species for all ReadOpac instances'
+            assert np.diff(lg) == 0.0, 'we need the same number of g points for all ReadOpac instances'
 
         self._lg = lg[0]
         self._ls = ls[0]
@@ -136,12 +120,13 @@ class Emulator:
         self._has_model = False
         self._is_trained = False
 
-        self._io = DataIO(filename=filename_data)
+        if filename_data is not None:
+            self._io = DataIO(filename=filename_data)
 
-    def setup_scaling(self, input_scaling = None, output_scaling = None, inv_output_scaling = None):
+    def setup_scaling(self, input_scaling=None, output_scaling=None, inv_output_scaling=None):
         """
         (optional) Change the callback functions for the scaling of in and output.
-        Defaults are given as opac_mixer.emulator.default_<name>.
+        Defaults are given as opac_mixer.scalings.default_<name>.
         """
         if input_scaling is not None:
             self.input_scaling = input_scaling
@@ -151,9 +136,11 @@ class Emulator:
             self.inv_output_scaling = inv_output_scaling
 
         if hasattr(self, "X_train"):
-            np.testing.assert_allclose(self.inv_output_scaling(self.X_train, self.output_scaling(self.X_train, self.y_train)), self.y_train)
+            np.testing.assert_allclose(
+                self.inv_output_scaling(self.X_train, self.output_scaling(self.X_train, self.y_train)), self.y_train)
         if hasattr(self, "X_test"):
-            np.testing.assert_allclose(self.inv_output_scaling(self.X_test, self.output_scaling(self.X_test, self.y_test)), self.y_test)
+            np.testing.assert_allclose(
+                self.inv_output_scaling(self.X_test, self.output_scaling(self.X_test, self.y_test)), self.y_test)
 
     def setup_sampling_grid(self, approx_batchsize=524288, bounds={}):
         """
@@ -183,10 +170,12 @@ class Emulator:
         # make sure the filename comes without the npy suffix
         self._batchsize_resh = []
         self._batchsize = []
+        self.abus = []
 
-        input_list = []
+        self.input_data = np.empty((0,*self._input_dim))
+
         for opac in self.opac:
-            batchsize = approx_batchsize // opac.lp[0] // opac.lt[0] // opac.lf[0]
+            batchsize = int(approx_batchsize) // opac.lp[0] // opac.lt[0] // opac.lf[0]
             batchsize_resh = batchsize * opac.lp[0] * opac.lt[0] * opac.lf[0]
             self._batchsize_resh.append(batchsize_resh)
             self._batchsize.append(batchsize)
@@ -210,16 +199,15 @@ class Emulator:
             # Note: We use loguniform like scaling for mmrs
 
             abus = np.exp(sample[:, :, :, :] * (
-                        np.log(u_bounds)[np.newaxis, :, np.newaxis, np.newaxis] - np.log(l_bounds)[np.newaxis, :,
-                                                                                  np.newaxis, np.newaxis]) + np.log(
+                    np.log(u_bounds)[np.newaxis, :, np.newaxis, np.newaxis] - np.log(l_bounds)[np.newaxis, :,
+                                                                              np.newaxis, np.newaxis]) + np.log(
                 l_bounds)[np.newaxis, :, np.newaxis, np.newaxis])
 
             weighted_kappas = abus[:, :, :, :, np.newaxis, np.newaxis] * opac.kcoeff[np.newaxis, ...]
             weighted_kappas = weighted_kappas.transpose((0, 2, 3, 4, 1, 5))
+            self.abus.append(abus)
 
-            input_list.append(weighted_kappas.reshape(batchsize_resh, opac.ls, opac.lg[0]).transpose(0, 2, 1))
-
-        self.input_data = np.array(input_list).reshape(-1, *self._input_dim)
+            self.input_data = np.concatenate((self.input_data, weighted_kappas.reshape(batchsize_resh, opac.ls, opac.lg[0]).transpose(0, 2, 1)),axis=0)
 
         self._check_input_data(self.input_data)
 
@@ -233,7 +221,7 @@ class Emulator:
             raise ValueError('input data does not match')
         assert (input_data >= 0).all(), "We need positive input data!"
 
-    def setup_mix(self, test_size=0.2, split_seed =None, do_parallel=True):
+    def setup_mix(self, test_size=0.2, split_seed=None, do_parallel=True):
         """
         Setup the mixer and generate the training and testdata.
 
@@ -253,21 +241,16 @@ class Emulator:
             split_seed = np.random.randint(2 ** 32 - 1)
 
         # make sure the filename comes without the npy suffix
-        mixes = []
-        for opac, mixer, batchsize, batchsize_resh in zip(self.opac, self.mixer, self._batchsize, self._batchsize_resh):
+        mixes = np.empty((0, self._lg))
+        for opac, mixer, abus, batchsize_resh in zip(self.opac, self.mixer, self.abus, self._batchsize_resh):
             if do_parallel:
-                mix = mixer.add_batch_parallel(self.input_data).reshape(
-                    (batchsize, opac.lp[0], opac.lt[0], opac.lf[0], opac.lg[0]))
+                mix = mixer.add_batch_parallel(abus)
             else:
-                mix = mixer.add_batch(self.input_data).reshape(
-                    (batchsize, opac.lp[0], opac.lt[0], opac.lf[0], opac.lg[0]))
+                mix = mixer.add_batch(abus)
 
-            mix = mix.reshape(batchsize_resh, self._lg)
-            mixes.append(mix)
+            mixes = np.concatenate((mixes, mix.reshape(batchsize_resh, self._lg)), axis=0)
 
-        mixes = np.array(mixes).reshape(-1, self._lg)
-
-        self._do_split(mixes, split_seed, test_size, use_split_seed=True)
+        self._do_split(self.input_data, mixes, split_seed, test_size, use_split_seed=True)
 
         if hasattr(self, "_io"):
             self._io.write_out(mixes, self.input_data, split_seed, test_size)
@@ -293,7 +276,8 @@ class Emulator:
         """
 
         if not hasattr(self, '_io') and filename is None:
-            raise ValueError('we have no clue where we could get the data from. Set a filename either in this method or the constructor')
+            raise ValueError(
+                'we have no clue where we could get the data from. Set a filename either in this method or the constructor')
 
         if filename is not None:
             self._io = DataIO(filename=filename)
@@ -308,28 +292,29 @@ class Emulator:
         if split_seed is None:
             split_seed = split_seed_l
 
-        self._do_split(mix, split_seed, test_size, use_split_seed)
+        self._do_split(self.input_data, mix, split_seed, test_size, use_split_seed)
 
         self._has_input = True
         self._has_mix = True
 
         return self.X_train, self.X_test, self.y_train, self.y_test
 
-    def _do_split(self, mix, split_seed, test_size, use_split_seed=True):
+    def _do_split(self, input_data, mix, split_seed, test_size, use_split_seed=True):
         """Do the actual split of training and testing data."""
         if (mix <= 0).any():
             raise ValueError('We found negative crosssections. Something is wrong here.')
 
         self.X_train, self.X_test, self.y_train, self.y_test = train_test_split(
-            self.input_data,
+            input_data,
             mix,
             test_size=test_size,
             random_state=split_seed if use_split_seed else None,
         )
 
-    def setup_model(self, model=None, filename=None, load=False, lr=0.1, hidden_units=None, **model_kwargs):
+    def setup_model(self, model=None, filename=None, load=False, learning_rate=1e-3, hidden_units=None, verbose=True, **model_kwargs):
         """
         Setup the emulator model and train it.
+        Note: This will reset all previously trained weights in keras models.
 
         Parameters
         ----------
@@ -344,7 +329,7 @@ class Emulator:
         Parameters for DeepSet
         ----------------------
         Check keras.compile docs for more arguments. Any extra argument is directly passed to keras.compile
-        lr: float
+        learning_rate: float
             (optional): learning rate of optimizer (adam per default, change by setting optimizer=<name>)
         hidden_units: int
             (optional): number of hidden units in the decoder (per default equals number of g-points)
@@ -352,44 +337,38 @@ class Emulator:
         (model_kwargs)
             arguments to pass to keras.compile for construction (only when model=None is used)
         """
-        if not self._has_mix:
-            raise AttributeError('we do not have a mix to work with yet. Run setup_sampling_grid and setup_mix first.')
-
-        if model is None:
-            if hidden_units is None:
-                hidden_units = self._lg
-
-            self.model = keras.Sequential([
-                layers.Input(shape=(self._lg, None)),
-                layers.Permute((2, 1), input_shape=(self._lg, None)),
-                layers.Dense(units=hidden_units, activation='relu', use_bias=False),
-                layers.Lambda(lambda x: tf.reduce_sum(x, axis=-2)),
-                layers.Dense(units=self._lg, activation='linear', use_bias=False),
-            ])
-
-        elif model is not None:
-            print("WARNING: make sure your model is permutation invariant!")
-            # Use provided model (needs to be sklearn compatible)
-            self.model = model
-
-        if isinstance(model, keras.Model):
-            extra_model_kwargs = {
-                "optimizer": keras.optimizers.Adam(lr=lr),
-                "loss": "mean_squared_error",
-            }
-            extra_model_kwargs.update(model_kwargs)
-
-            model.compile(**extra_model_kwargs)
-            model.summary()
+        keras.backend.clear_session()
+        self.verbose = verbose
 
         if load:
             # Load model
-            keras.models.load_model(filename)
+            self.model = keras.models.load_model(filename)
             self._is_trained = True
+        else:
+            if not self._has_mix:
+                raise AttributeError('we do not have a mix to work with yet. Run setup_sampling_grid and setup_mix first.')
 
-        if filename is not None and not load:
-            # Save filename for later use
-            self._model_filename = filename
+            if model is None:
+                self.model = get_deepset(ng=self._lg, hidden_units=hidden_units)
+            elif model is not None:
+                print("WARNING: make sure your model is permutation invariant!")
+                # Use provided model (needs to be sklearn compatible)
+                self.model = model
+
+            if isinstance(self.model, keras.Model):
+                extra_model_kwargs = {
+                    "optimizer": keras.optimizers.Adam(learning_rate=learning_rate),
+                    "loss": "mean_squared_error",
+                }
+                extra_model_kwargs.update(model_kwargs)
+
+                self.model.compile(**extra_model_kwargs)
+                if self.verbose:
+                    self.model.summary()
+
+            if filename is not None:
+                # Save filename for later use
+                self._model_filename = filename
 
         self._has_model = True
 
@@ -414,20 +393,28 @@ class Emulator:
         fit_args.update(kwargs)
 
         if not self._has_model:
-            raise AttributeError('we do not have a model yet. Run setup_sampling_grid, setup_mix and setup_model first.')
+            raise AttributeError(
+                'we do not have a model yet. Run setup_sampling_grid, setup_mix and setup_model first.')
 
         # fit the model on the training dataset
         X_train = self.input_scaling(self.X_train)
         y_train = self.output_scaling(self.X_train, self.y_train)
 
         if isinstance(self.model, keras.Model):
-            self.model.fit(X_train, y_train, callbacks=[CustomCallback(self), keras.callbacks.EarlyStopping(monitor='loss', patience=3)], **fit_args)
-        else:
-            self.model.fit(X_train.reshape(len(X_train),-1), y_train, *args, **kwargs)
 
-        if hasattr(self, "_model_filename") and callable(getattr(self.model, "save_model", None)):
+            callbacks = [keras.callbacks.EarlyStopping(monitor='loss', patience=3)]
+            if self.verbose:
+                callbacks.append(CustomCallback(self))
+
+            self.model.fit(X_train, y_train,
+                           callbacks=callbacks,
+                           **fit_args)
+        else:
+            self.model.fit(X_train.reshape(len(X_train), -1), y_train, *args, **kwargs)
+
+        if hasattr(self, "_model_filename") and callable(getattr(self.model, "save", None)):
             print(f"Saving model to {self._model_filename}")
-            self.model.save_model(self._model_filename)
+            self.model.save(self._model_filename)
 
         self._is_trained = True
 
@@ -448,12 +435,14 @@ class Emulator:
         self._check_input_data(X)
 
         # fit the model on the training dataset
-        if isinstance(self,keras.Model):
-            return self.inv_output_scaling(X, self.model.predict(self.input_scaling(X), *args, **kwargs))
+        if isinstance(self.model, keras.Model):
+            verbose = 0 if not self.verbose else "auto"
+            return self.inv_output_scaling(X, self.model.predict(self.input_scaling(X), verbose=verbose, *args, **kwargs))
         else:
-            return self.inv_output_scaling(X, self.model.predict(self.input_scaling(X).reshape(len(X),-1), *args, **kwargs))
+            return self.inv_output_scaling(X, self.model.predict(self.input_scaling(X).reshape(len(X), -1), *args,
+                                                                 **kwargs))
 
-    def score(self, validation_set = None):
+    def score(self, validation_set=None):
         """
         Print some metrics for the training and test data.
 
@@ -543,11 +532,14 @@ class Emulator:
         self._check_trained()
         if isinstance(self.model, keras.Model):
             for i, weights in enumerate(self.model.weights):
-                if format == 'np':
-                    np.save(f'{path}/ml_coeff_{i}.npy', weights.numpy().T)
+                if format == 'np' or format == 'numpy':
+                    np.save(f'{path}/ml_coeff_{i}.npy', weights.numpy())
                 elif format == 'exorad':
-                    wrmds(f'{path}/ml_coeff_{i}', weights.numpy().T,
+                    wrmds(f'{path}/ml_coeff_{i}', weights.numpy().flatten(order="F"),
                           dataprec="float64")
+                else:
+                    raise NotImplementedError('format is not supported yet.')
+
 
         else:
             raise NotImplementedError('not implemented for the type of model used')
@@ -561,7 +553,6 @@ class Emulator:
         validation_set: list(X_test, y_test)
             validation set to be used instead of (self.X_test, self.y_test)
         """
-
 
         if validation_set is None:
             X_test = self.X_test
@@ -625,4 +616,4 @@ class Emulator:
                 plt.title(f'weight {i}')
 
                 plt.colorbar(img)
-            plt.show()
+                plt.show()

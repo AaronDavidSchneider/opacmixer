@@ -1,9 +1,9 @@
 import numpy as np
-import numba
 import h5py
 import scipy.constants as const
 import matplotlib.pyplot as plt
 from .utils import interp_2d
+
 
 class ReadOpac:
     def __init__(self, ls, lp, lt, lf, lg):
