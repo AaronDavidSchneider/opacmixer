@@ -1,5 +1,6 @@
 import time
 
+import numba
 import numpy as np
 from petitRADTRANS import Radtrans
 from petitRADTRANS import fort_input as fi
@@ -38,22 +39,55 @@ def mix_kappa_add(kappas, *args):
 
 def mix_kappa_aee(kappas, w, g, p):
     """Adaptive equivilant extinction"""
-    tau_tot = np.cumsum(kappas[:, :, :, :-1] * np.diff(p), axis=-1) / g
-
-    kappas_thin = np.where(tau_tot < 1, kappas[:, :, :, :-1], 0.0)
+    kappa_av = np.sum(kappas[:, :, :, :] * w[:, None, None, None], axis=0) / np.sum(w, axis=0)
+    tau_tot = np.cumsum(np.sum(kappa_av[:, :, :-1], axis=1) * np.diff(p), axis=-1) / g
+    kappas_thin = np.where(tau_tot[:, None, :] < 1, kappa_av[:, :, :-1], 0.0)
     max_abs = np.argmax(np.sum(kappas_thin * np.diff(p), axis=-1), -1)
+    max_abs_br = np.ones_like(kappas, dtype='int') * max_abs[None, :, None, None]
+    kmax = np.take_along_axis(kappas, max_abs_br, 2)
+    # np.testing.assert_allclose(np.sum(kmax,axis=2), kappas.shape[2]*kmax[:,:,0,:])
+    kappa_av_max_abs = np.take_along_axis(kappa_av, max_abs_br[0, :, :, :], 1)
+    # np.testing.assert_allclose(np.sum(kappa_av_max_abs,axis=1), kappas.shape[2]*kappa_av_max_abs[:,0,:])
+    kminor_sum = np.sum(kappa_av, axis=-2) - kappa_av_max_abs[:,0,:]
+    return kmax[:, :, 0, :] + kminor_sum[None, :, :]
 
-    kmax = np.ones((kappas.shape[0], kappas.shape[1], kappas.shape[-1]))
-    kminor_sum = np.ones((kappas.shape[0], kappas.shape[1], kappas.shape[-1]))
-    for gi in range(kappas.shape[0]):
-        for freqi in range(kappas.shape[1]):
-            kmax[gi, freqi, :] = kappas[gi, freqi, max_abs[gi, freqi], :]
-            kminor_sum[gi, freqi, :] = np.sum(kappas[gi, freqi, :max_abs[gi, freqi], :], axis=0) + np.sum(
-                kappas[gi, freqi, :max_abs[gi, freqi] + 1, :], axis=0)
 
-    kgray = np.sum(w[:, None, None] * kminor_sum, axis=0) / np.sum(w)
+# @numba.njit(nogil=True, fastmath=True, cache=True)
+def mix_kappa_aee_jit(kappas, w, g, p, lg, lf, ls, lp):
+    kappa_av = np.zeros((lf,ls,lp))
+    tau = np.zeros(ls)
 
-    kout = kmax + kgray[None, :, :]
+    kmax = np.empty((lg, lp))
+    kgray = np.zeros((lp))
+
+    kout = np.empty((lg, lf, lp))
+
+    w_sum = np.sum(w)
+    for gi in range(lg):
+        kappa_av[:,:,:] = kappa_av[:,:,:] + w[gi]*kappas[gi,:,:,:]/w_sum
+
+    for fi in range(lf):
+        tau_tot = 0.0
+        tau[:] = 0.0
+        for ki in range(lp-1):
+            for si in range(ls):
+                tau[si] = tau[si] + kappa_av[fi, si, ki] * (p[ki+1] - p[ki])/g
+                tau_tot = tau_tot + tau[si]
+
+            if tau_tot > 1:
+                break
+
+        max_idx = np.argmax(tau)
+        kmax[:, :] = kappas[:, fi, max_idx, :]
+
+        kgray[:] = 0.0
+        for si in range(ls):
+            if si != max_idx:
+                kgray[:] = kgray[:] + kappa_av[fi, si, :]
+
+        for ki in range(lp):
+            kout[:, fi, ki] = kmax[:, ki] + kgray[ki]
+
     return kout
 
 
@@ -92,6 +126,8 @@ class PatchedRadtrans(Radtrans):
             return mix_kappa_add(kappas)
         elif self._mixmethod == 'aee':
             return mix_kappa_aee(kappas, self.w_gauss, g, self.press)
+        elif self._mixmethod == 'aee_jit':
+            return mix_kappa_aee_jit(kappas, self.w_gauss, g, self.press, *kappas.shape)
         elif self._mixmethod == 'rorr':
             return fs.combine_opas_ck(
                 kappas,
