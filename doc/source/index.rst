@@ -13,8 +13,8 @@ opacity mixing accelerated
    :caption: Contents
 
    Installation
-   ../../notebooks/training.ipynb
-   ../../notebooks/petitRADTRANS.ipynb
+   notebooks/tutorial.ipynb
+   notebooks/petitRADTRANS.ipynb
 
 Indices and tables
 ==================

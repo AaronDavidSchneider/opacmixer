@@ -4,7 +4,7 @@
 ## Custom ##
 main.py
 scratch.ipynb
-notebooks/data
+doc/source/notebooks/data
 
 ### macOS ###
 # General
