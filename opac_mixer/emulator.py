@@ -9,11 +9,11 @@ from sklearn.metrics import mean_squared_error, mean_squared_log_error, r2_score
 from sklearn.model_selection import train_test_split
 from tensorflow import keras
 
-from .callbacks import CustomCallback
+from opac_mixer.utils.callbacks import CustomCallback
 from .mix import CombineOpacGrid
-from .models import get_deepset
+from opac_mixer.utils.models import get_deepset
 from .read import ReadOpac
-from .scalings import default_input_scaling, default_output_scaling, default_inv_output_scaling
+from opac_mixer.utils.scalings import default_input_scaling, default_output_scaling, default_inv_output_scaling
 
 DEFAULT_PRANGE = (1e-6, 1000, 10)
 DEFAULT_TRANGE = (100, 10000, 10)

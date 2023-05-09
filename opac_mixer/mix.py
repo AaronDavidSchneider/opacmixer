@@ -1,7 +1,7 @@
 import numba
 import numpy as np
 import tqdm
-from .utils import interp_2d
+from .utils.interp import interp_2d
 from functools import partial
 from multiprocessing.pool import Pool
 
@@ -147,8 +147,6 @@ class CombineOpacGrid(CombineOpac):
         """Reshapes the mass mixing ratios and check that they are in the correct shape."""
         if method == 'linear':
             return partial(self._add_linear, self.opac.kcoeff)
-        elif method == 'AEE':
-            return partial(self._add_aee, self.opac.kcoeff)
         elif method == 'RORR':
             return partial(self._add_rorr, self.opac.kcoeff, self.opac.weights)
         else:
@@ -185,16 +183,6 @@ class CombineOpacGrid(CombineOpac):
     def _add_linear(ktable, mmr):
         """linear additive mixing of a kgrid."""
         return np.sum(ktable*mmr[:,:,:,np.newaxis,np.newaxis], axis=0)
-
-    @staticmethod
-    def _add_aee(ktable, mmr):
-        """Adaptive equivalent extinction on a kgrid."""
-        weighted_k = ktable*mmr[:,:,:,np.newaxis,np.newaxis]
-        gray_k = np.sum(weighted_k,axis=-1)
-        index_max = np.argsort(gray_k, axis=0)
-        major = np.take_along_axis(weighted_k, index_max[..., np.newaxis], 0)[-1]
-        rest = np.sum(np.take_along_axis(gray_k, index_max, 0)[:-1], axis=0)
-        return major + rest[..., np.newaxis]
 
     @staticmethod
     def _add_rorr(ktable, weights, mmr):

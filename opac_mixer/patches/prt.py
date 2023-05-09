@@ -1,6 +1,5 @@
 import time
 
-import numba
 import numpy as np
 from petitRADTRANS import Radtrans
 from petitRADTRANS import fort_input as fi
@@ -9,7 +8,7 @@ from petitRADTRANS import nat_cst as nc
 from petitRADTRANS import pyth_input as pyi
 
 from opac_mixer import fort_bol_flux as fs_bol
-from opac_mixer.scalings import default_input_scaling as t_x, default_inv_output_scaling as ti_y
+from opac_mixer.utils.scalings import default_input_scaling as t_x, default_inv_output_scaling as ti_y
 
 
 def simple_deep_set(kappas, weights):

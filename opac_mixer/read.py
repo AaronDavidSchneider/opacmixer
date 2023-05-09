@@ -2,7 +2,7 @@ import numpy as np
 import h5py
 import scipy.constants as const
 import matplotlib.pyplot as plt
-from .utils import interp_2d
+from .utils.interp import interp_2d
 
 
 class ReadOpac:
@@ -133,7 +133,7 @@ class ReadOpacChubb(ReadOpac):
                 self.T[i,:self.lt[i]] = np.array(f['t'], dtype=np.float64)
                 self.p[i,:self.lp[i]] = np.array(f['p'], dtype=np.float64)
                 # from cm2/mol to cm2/g:
-                conversion_factor = 1/(float(f['mol_mass'][0])*const.atomic_mass*1000)
+                conversion_factor = 1/(np.float64(f['mol_mass'][0])*const.atomic_mass*1000)
                 kcoeff = np.array(f['kcoeff'], dtype=np.float64)*conversion_factor
                 self.kcoeff[i,:self.lp[i],:self.lt[i],:,:] = kcoeff
 
