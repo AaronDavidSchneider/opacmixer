@@ -15,8 +15,8 @@ from opac_mixer.utils.models import get_deepset
 from .read import ReadOpac
 from opac_mixer.utils.scalings import default_input_scaling, default_output_scaling, default_inv_output_scaling
 
-DEFAULT_PRANGE = (1e-6, 1000, 10)
-DEFAULT_TRANGE = (100, 10000, 10)
+DEFAULT_PRANGE = (1e-6, 1000, 30)
+DEFAULT_TRANGE = (100, 10000, 30)
 
 DEFAULT_MMR_RANGES = {
     'CO': (1e-30, 0.005522337070205542),
@@ -95,7 +95,7 @@ class Emulator:
                 opac.read_opac()
             if not opac.interp_done:
                 opac.setup_temp_and_pres(
-                    pres=np.logspace(np.log(prange_opacset[0]), np.log(prange_opacset[1]), prange_opacset[2]),
+                    pres=np.logspace(np.log10(prange_opacset[0]), np.log10(prange_opacset[1]), prange_opacset[2]),
                     temp=np.linspace(*trange_opacset))
 
         self.input_scaling = default_input_scaling
@@ -142,7 +142,7 @@ class Emulator:
             np.testing.assert_allclose(
                 self.inv_output_scaling(self.X_test, self.output_scaling(self.X_test, self.y_test)), self.y_test)
 
-    def setup_sampling_grid(self, approx_batchsize=524288, bounds={}):
+    def setup_sampling_grid(self, approx_batchsize=524288, extra_abus = None, bounds={}):
         """
         Setup the sampling grid. Sampling along MMR and pressure is in logspace.
         Sampling along temperature is in linspace.
@@ -160,21 +160,31 @@ class Emulator:
             and opac_mixer.emulator.DEFAULT_TRANGE for temperautre for all missing values
         use_sobol: bool
             Use sobol sampling. If false, a uniform sampling is used instead.
+        extra_abus: np.array(num_sample, ls, lp, lt)
+            Extra abundancies (mmrs) used for the training data. Could be e.g., a grid of eq. chem abundancies
 
         Returns
         -------
-        input_data: np.array((batchsize, opac.ls+2))
+        input_data: np.array((batchsize, opac.lg, opac.ls))
             The sampled inputdata to train/test the emulator.
-            Shape: [..., [mmr_{0,i}, .., mmr_{ls,i}, p_i, T_i], ...]
+            The input_data consists of kappas(g) for each species
         """
         # make sure the filename comes without the npy suffix
         self._batchsize_resh = []
         self._batchsize = []
         self.abus = []
 
-        self.input_data = np.empty((0,*self._input_dim))
+        self.input_data = np.empty((0, *self._input_dim))
 
         for opac in self.opac:
+            if extra_abus is not None:
+                assert extra_abus.shape[1] == self._ls, 'wrong shape in extra_abus second dimension (number of species)'
+                assert extra_abus.shape[2] == opac.lp[0], 'wrong shape in extra_abus second dimension (number of pressure points)'
+                assert extra_abus.shape[3] == opac.lt[0], 'wrong shape in extra_abus second dimension (number of temperature points)'
+                extra_batchsize = int(extra_abus.shape[0])
+            else:
+                extra_batchsize = 0
+
             batchsize = int(approx_batchsize) // opac.lp[0] // opac.lt[0] // opac.lf[0]
             batchsize_resh = batchsize * opac.lp[0] * opac.lt[0] * opac.lf[0]
             self._batchsize_resh.append(batchsize_resh)
@@ -193,7 +203,7 @@ class Emulator:
 
             # Use a standard uniform distribution
             sample = np.random.uniform(low=0.0, high=1.0,
-                                       size=(batchsize, self._ls, opac.lp[0], opac.lt[0]))
+                                       size=(batchsize-extra_batchsize, self._ls, opac.lp[0], opac.lt[0]))
 
             # Scale the sampling to the actual bounds
             # Note: We use loguniform like scaling for mmrs
@@ -202,6 +212,9 @@ class Emulator:
                     np.log(u_bounds)[np.newaxis, :, np.newaxis, np.newaxis] - np.log(l_bounds)[np.newaxis, :,
                                                                               np.newaxis, np.newaxis]) + np.log(
                 l_bounds)[np.newaxis, :, np.newaxis, np.newaxis])
+
+            if extra_abus is not None:
+                abus = np.concatenate((abus, extra_abus), axis=0)
 
             weighted_kappas = abus[:, :, :, :, np.newaxis, np.newaxis] * opac.kcoeff[np.newaxis, ...]
             weighted_kappas = weighted_kappas.transpose((0, 2, 3, 4, 1, 5))
