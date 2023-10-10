@@ -1,0 +1,10 @@
+cff-version: 1.2.0
+message: "Harnessing machine learning for accurate treatment of overlapping opacity species in GCMs"
+authors:
+- family-names: "Schneider"
+  given-names: "Aaron David"
+  orcid: "https://orcid.org/0000-0002-1448-0303"
+title: "opac_mixer"
+version: 0.1
+date-released: 2023-10-10
+url: "https://github.com/aarondavidschneider/opac_mixer"
