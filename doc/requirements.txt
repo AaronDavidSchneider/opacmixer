@@ -3,3 +3,4 @@ ipython
 nbsphinx
 numpy
 recommonmark
+sphinx-rtd-theme
