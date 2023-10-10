@@ -1,13 +1,10 @@
 Installation
 ------------
 
-Preperation
-^^^^^^^^^^^
-
 pip
 ^^^
 
-Once the project is on pypi, you can install it via
+Future: once the project is on pypi, you can install it via
 
 .. code-block:: bash
 
@@ -34,3 +31,7 @@ Install ``opac_mixer``:
 .. code-block:: bash
 
    pip install -e .
+
+.. note::
+
+   If you experience f2py issues with the installation, try to remove the petitRADTRANS patches in the code in ``opac_mixer/patches``, and remove the f2py related things in ``setup.py``.

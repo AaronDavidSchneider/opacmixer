@@ -60,13 +60,11 @@ numpydoc_show_class_members = False
 # To avoid installing xESMF and all its dependencies when building doc
 # https://stackoverflow.com/a/15912502/8729698
 autodoc_mock_imports = [
-        "scikit-learn",
         "numba",
         "hyperopt",
         "scipy",
         "numpy",
         "matplotlib",
-        "pyyaml",
         "tqdm",
         "h5py",
         "tensorflow",

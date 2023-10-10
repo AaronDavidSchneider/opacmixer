@@ -34,11 +34,9 @@ setup(
     install_requires=[
         "scikit-learn",
         "numba",
-        "hyperopt",
         "scipy",
         "numpy",
         "matplotlib",
-        "pyyaml",
         "tqdm",
         "h5py",
         "tensorflow",
