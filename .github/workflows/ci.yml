@@ -22,6 +22,9 @@ jobs:
         os: [ "ubuntu-latest" ]
         python-version: [ "3.8", "3.9", "3.10", "3.11"]
     steps:
+      - name: Set env
+        run: |
+          echo "pRT_input_data_path=$(pwd)/prt_input_data" >> $GITHUB_ENV
       - uses: actions/checkout@v2
       - name: Cache conda
         uses: actions/cache@v3
@@ -35,6 +38,15 @@ jobs:
           python-version: ${{ matrix.python-version }}
           environment-file: ci/environment-${{ matrix.python-version }}.yml
           use-only-tar-bz2: true # IMPORTANT: This needs to be set for caching to work properly!
+      - name: Download opacity data
+        shell: bash -l {0}
+        run: |
+          wget https://figshare.com/ndownloader/files/39647884 -O prt_data.tar.gz
+          tar -xzf prt_data.tar.gz         
+      - name: Set up petitRADTRANS
+        shell: bash -l {0}
+        run: |
+          python -m pip install petitRADTRANS==2.4.9           
       - name: Set up conda environment
         shell: bash -l {0}
         run: |
@@ -42,6 +54,7 @@ jobs:
           conda list
       - name: Run Tests
         shell: bash -l {0}
+        working-directory: opac_mixer/tests
         run: |
           py.test --cov=./ --cov-report=xml
       - name: Upload code coverage to Codecov

@@ -194,7 +194,7 @@ def test_mix_vs_prt(setup_test_mix_grid):
                 plt.show()
 
 def _test_mix_vs_exok(setup_test_mix_grid):
-    """Compare against exok ck RORR implementation"""
+    """Compare against exok ck RORR implementation. Note, that this implementation is different."""
     import matplotlib.pyplot as plt
     opac, expected, mmr, mix, mixer = setup_test_mix_grid
 

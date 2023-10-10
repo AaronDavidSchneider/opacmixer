@@ -7,4 +7,3 @@ dependencies:
   - codecov
   - h5py
   - numpy
-
