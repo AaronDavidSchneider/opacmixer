@@ -7,7 +7,7 @@ import tqdm
 
 from .utils.interp import interp_2d
 
-DEFAULT_METHOD = 'RORR'
+DEFAULT_METHOD = "RORR"
 
 
 @numba.njit(nogil=True, fastmath=True, cache=True)
@@ -17,8 +17,12 @@ def resort_rebin_njit(kout_conv, k1, k2, weights_in, weights_conv, Np, Nt, Nf, N
     # Initialize arrays
     kout = np.zeros((Np, Nt, Nf, Ng), dtype=np.float64)
     len_resort = Ng * Ng
-    kout_conv_resorted = np.zeros(len_resort + 1, dtype=np.float64)  # note: We add +1 for the right edge
-    g_resorted = np.zeros(len_resort + 1, dtype=np.float64)  # note: We add +1 for the right edge
+    kout_conv_resorted = np.zeros(
+        len_resort + 1, dtype=np.float64
+    )  # note: We add +1 for the right edge
+    g_resorted = np.zeros(
+        len_resort + 1, dtype=np.float64
+    )  # note: We add +1 for the right edge
     ggrid = compute_ggrid(weights_in, Ng)
 
     # Start looping over p, t and freq, because we need to do the resorting and rebinning individually
@@ -34,11 +38,14 @@ def resort_rebin_njit(kout_conv, k1, k2, weights_in, weights_conv, Np, Nt, Nf, N
                 g_resorted[:len_resort] = compute_ggrid(weights_resorted, Ng * Ng)
                 # edges:
                 g_resorted[len_resort] = 1.0
-                kout_conv_resorted[len_resort] = k1[pi, ti, freqi, -1] + k2[pi, ti, freqi, -1]
+                kout_conv_resorted[len_resort] = (
+                    k1[pi, ti, freqi, -1] + k2[pi, ti, freqi, -1]
+                )
                 kout_conv_resorted[0] = k1[pi, ti, freqi, 0] + k2[pi, ti, freqi, 0]
                 # interpolate:
-                kout[pi, ti, freqi, :] = np.interp(ggrid, g_resorted,
-                                                   kout_conv_resorted)
+                kout[pi, ti, freqi, :] = np.interp(
+                    ggrid, g_resorted, kout_conv_resorted
+                )
     return kout
 
 
@@ -57,7 +64,19 @@ def compute_ggrid(w, Ng):
 
 
 @numba.njit(nogil=True, fastmath=True, cache=True, parallel=False)
-def _rorr_single(ktable, weights, weights_conv, ls, lf, lg, temp_old, press_old, lt_old, lp_old, input_data):
+def _rorr_single(
+    ktable,
+    weights,
+    weights_conv,
+    ls,
+    lf,
+    lg,
+    temp_old,
+    press_old,
+    lt_old,
+    lp_old,
+    input_data,
+):
     kout = np.empty((1, 1, lf, lg), dtype=np.float64)
     kout_conv = np.empty((1, 1, lf, lg * lg), dtype=np.float64)
     mixed_ktables = np.empty((ls, 1, 1, lf, lg), dtype=np.float64)
@@ -66,7 +85,9 @@ def _rorr_single(ktable, weights, weights_conv, ls, lf, lg, temp_old, press_old,
     press = np.asarray([input_data[-2]])
     mmr = np.asarray(input_data[:-2])
 
-    ki = interp_2d(temp_old, press_old, temp, press, ktable, ls, lf, lg, lt_old, lp_old, 1, 1)
+    ki = interp_2d(
+        temp_old, press_old, temp, press, ktable, ls, lf, lg, lt_old, lp_old, 1, 1
+    )
 
     for speci in range(ls):
         mixed_ktables[speci, 0, 0, :, :] = mmr[speci] * ki[speci, 0, 0, :, :]
@@ -88,7 +109,9 @@ def _rorr_single(ktable, weights, weights_conv, ls, lf, lg, temp_old, press_old,
 class CombineOpac:
     def __init__(self, opac):
         self.opac = opac
-        assert self.opac.interp_done, 'yo, dude, you need to run setup_temp_and_pres on opac first'
+        assert (
+            self.opac.interp_done
+        ), "yo, dude, you need to run setup_temp_and_pres on opac first"
 
 
 class CombineOpacIndividual(CombineOpac):
@@ -106,10 +129,17 @@ class CombineOpacIndividual(CombineOpac):
 
     def _get_mix_func(self, method, use_mult):
         """Reshapes the mass mixing ratios and check that they are in the correct shape."""
-        if method == 'RORR':
-            return partial(self._add_rorr, self.opac.kcoeff, self.opac.weights, self.opac.Tr, self.opac.pr, use_mult)
+        if method == "RORR":
+            return partial(
+                self._add_rorr,
+                self.opac.kcoeff,
+                self.opac.weights,
+                self.opac.Tr,
+                self.opac.pr,
+                use_mult,
+            )
         else:
-            raise NotImplementedError('Method not implemented.')
+            raise NotImplementedError("Method not implemented.")
 
     def _check_input_shape(self, input_data):
         """Checks that they are in the correct shape."""
@@ -135,25 +165,45 @@ class CombineOpacIndividual(CombineOpac):
 
         weights_conv = np.outer(weights, weights).flatten()
 
-        func = partial(_rorr_single, ktable, weights, weights_conv, ls, lf, lg, temp_old, press_old, lt_old, lp_old)
+        func = partial(
+            _rorr_single,
+            ktable,
+            weights,
+            weights_conv,
+            ls,
+            lf,
+            lg,
+            temp_old,
+            press_old,
+            lt_old,
+            lp_old,
+        )
 
         if use_mult:
             with Pool() as pool:
-                return np.asarray(list(tqdm.tqdm(pool.imap(func, input_data, chunksize=100), total=Nsamples)),
-                                  dtype=np.float64)
+                return np.asarray(
+                    list(
+                        tqdm.tqdm(
+                            pool.imap(func, input_data, chunksize=100), total=Nsamples
+                        )
+                    ),
+                    dtype=np.float64,
+                )
         else:
-            return np.asarray(list(tqdm.tqdm(map(func, input_data), total=Nsamples)), dtype=np.float64)
+            return np.asarray(
+                list(tqdm.tqdm(map(func, input_data), total=Nsamples)), dtype=np.float64
+            )
 
 
 class CombineOpacGrid(CombineOpac):
     def _get_mix_func(self, method):
         """Reshapes the mass mixing ratios and check that they are in the correct shape."""
-        if method == 'linear':
+        if method == "linear":
             return partial(self._add_linear, self.opac.kcoeff)
-        elif method == 'RORR':
+        elif method == "RORR":
             return partial(self._add_rorr, self.opac.kcoeff, self.opac.weights)
         else:
-            raise NotImplementedError('Method not implemented.')
+            raise NotImplementedError("Method not implemented.")
 
     def _check_mmr_shape(self, mmr):
         """Reshapes the mass mixing ratios and check that they are in the correct shape."""
@@ -161,7 +211,10 @@ class CombineOpacGrid(CombineOpac):
         if isinstance(mmr, dict):
             mmr = np.array([mmr[speci] for speci in self.opac.spec])
         assert mmr.shape == (
-        self.opac.ls, self.opac.lp[0], self.opac.lt[0]), 'shape of mmr needs to be species, pressure, temperature'
+            self.opac.ls,
+            self.opac.lp[0],
+            self.opac.lt[0],
+        ), "shape of mmr needs to be species, pressure, temperature"
         return mmr
 
     def add_single(self, mmr, method=DEFAULT_METHOD):
@@ -181,7 +234,10 @@ class CombineOpacGrid(CombineOpac):
         mmr = [self._check_mmr_shape(mmr_i) for mmr_i in mmr]
         mix_func = self._get_mix_func(method)
         with Pool(**pool_kwargs) as pool:
-            return np.asarray(list(tqdm.tqdm(pool.imap(mix_func, mmr), total=len(mmr))), dtype=np.float64)
+            return np.asarray(
+                list(tqdm.tqdm(pool.imap(mix_func, mmr), total=len(mmr))),
+                dtype=np.float64,
+            )
 
     @staticmethod
     def _add_linear(ktable, mmr):
@@ -198,8 +254,11 @@ class CombineOpacGrid(CombineOpac):
         for speci in range(1, ktable.shape[0]):
             k1 = kout
             k2 = mixed_ktables[speci]
-            kout_conv = (k1[..., :, np.newaxis] + k2[..., np.newaxis, :]).reshape(*kout.shape[:-1],
-                                                                                  weights_conv.shape[0])
-            kout = resort_rebin_njit(kout_conv, k1, k2, weights, weights_conv, *kout.shape)
+            kout_conv = (k1[..., :, np.newaxis] + k2[..., np.newaxis, :]).reshape(
+                *kout.shape[:-1], weights_conv.shape[0]
+            )
+            kout = resort_rebin_njit(
+                kout_conv, k1, k2, weights, weights_conv, *kout.shape
+            )
 
         return kout

@@ -4,15 +4,15 @@ with open("README.md", "r") as fh:
     long_description = fh.read()
 
 setup(
-    name='opac_mixer',
-    version='v0.1',
+    name="opac_mixer",
+    version="v0.1",
     packages=find_packages(),
     include_package_data=True,
-    url='https://github.com/aarondavidschneider/opac_mixer',
-    license='MIT',
-    author='Aaron David Schneider',
-    author_email='aaron.schneider@nbi.ku.dk',
-    description='opacity mixing - accelerated',
+    url="https://github.com/aarondavidschneider/opac_mixer",
+    license="MIT",
+    author="Aaron David Schneider",
+    author_email="aaron.schneider@nbi.ku.dk",
+    description="opacity mixing - accelerated",
     long_description=long_description,
     long_description_content_type="text/markdown",
     install_requires=[
@@ -24,6 +24,6 @@ setup(
         "tqdm",
         "h5py",
         "tensorflow",
-        "MITgcmutils"
-    ]
+        "MITgcmutils",
+    ],
 )
