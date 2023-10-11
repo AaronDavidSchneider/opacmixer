@@ -1,3 +1,4 @@
+"""This module houses the Emulator of the opacity mixing"""
 import os.path
 
 import h5py
@@ -42,6 +43,7 @@ DEFAULT_MMR_RANGES = {
 
 
 class DataIO:
+    """IO Class for storing the emulator"""
     def __init__(self, filename):
         """Setup the IO class"""
         self.filename = filename
@@ -73,6 +75,9 @@ class DataIO:
 
 
 class Emulator:
+    """
+    The supervisor that handels the training and evaluation of the opacity emulator.
+    """
     def __init__(
         self,
         opac,
@@ -95,7 +100,7 @@ class Emulator:
             A filename, used to save the training and testing data to
         """
         if isinstance(opac, list):
-            assert all([isinstance(opac_i, ReadOpac) for opac_i in opac])
+            assert all(isinstance(opac_i, ReadOpac) for opac_i in opac)
             self.opac = opac
         elif isinstance(opac, ReadOpac):
             self.opac = [opac]
@@ -104,11 +109,11 @@ class Emulator:
                 "opac needs to be either a list of ReadOpac or a ReadOpac instance"
             )
 
-        for opac in self.opac:
-            if not opac.read_done:
-                opac.read_opac()
-            if not opac.interp_done:
-                opac.setup_temp_and_pres(
+        for opac_i in self.opac:
+            if not opac_i.read_done:
+                opac_i.read_opac()
+            if not opac_i.interp_done:
+                opac_i.setup_temp_and_pres(
                     pres=np.logspace(
                         np.log10(prange_opacset[0]),
                         np.log10(prange_opacset[1]),
@@ -157,6 +162,9 @@ class Emulator:
         self.y_train = None
         self.y_test = None
 
+        self.model = None
+        self._model_filename = None
+
         self.input_data = np.empty((0, *self._input_dim))
 
     def setup_scaling(
@@ -188,7 +196,7 @@ class Emulator:
                 self.y_test,
             )
 
-    def setup_sampling_grid(self, approx_batchsize=8e5, extra_abus=None, bounds={}):
+    def setup_sampling_grid(self, approx_batchsize=8e5, extra_abus=None, bounds=None):
         """
         Setup the sampling grid. Sampling along MMR and pressure is in logspace.
         Sampling along temperature is in linspace.
@@ -197,7 +205,7 @@ class Emulator:
         ----------
         approx_batchsize: int
             Number of total sampling points. Needs to be a power of 2 for sobol sampling
-        bounds: dict
+        bounds: dict or None
             the lower and upper bounds for sampling. Shape: {'species':(lower, upper)}
             The key can be either a species name in opac.spec or p and T for pressure and Temperature.
             It will use opac_mixer.emulator.DEFAULT_MMR_RANGES for mmrs, opac_mixer.emulator.DEFAULT_PRANGE for pressure,
@@ -211,7 +219,8 @@ class Emulator:
             The sampled inputdata to train/test the emulator.
             The input_data consists of kappas(g) for each species
         """
-        # make sure the filename comes without the npy suffix
+        if bounds is None:
+            bounds = {}
         self._batchsize_resh = []
         self._batchsize = []
         self.abus = []
@@ -322,8 +331,8 @@ class Emulator:
 
         # make sure the filename comes without the npy suffix
         mixes = np.empty((0, self._lg))
-        for opac, mixer, abus, batchsize_resh in zip(
-            self.opac, self.mixer, self.abus, self._batchsize_resh
+        for mixer, abus, batchsize_resh in zip(
+            self.mixer, self.abus, self._batchsize_resh
         ):
             if do_parallel:
                 mix = mixer.add_batch_parallel(abus)
@@ -354,7 +363,7 @@ class Emulator:
         Parameters
         ----------
         filename: str (optional)
-            Can be set either here or in the constructor
+            Can be set either here or in the constructor. Make sure the filename comes without the npy suffix
         test_size: float (optional)
             use a different test size than the one loaded
         split_seed: int (optional)
@@ -365,7 +374,8 @@ class Emulator:
 
         if not hasattr(self, "_io") and filename is None:
             raise ValueError(
-                "we have no clue where we could get the data from. Set a filename either in this method or the constructor"
+                "we have no clue where we could get the data from. Set a filename either in this method or the "
+                "constructor"
             )
 
         if filename is not None:
@@ -390,8 +400,23 @@ class Emulator:
 
         return self.X_train, self.X_test, self.y_train, self.y_test
 
-    def _do_split(self, input_data, mix, split_seed, test_size, use_split_seed=True):
-        """Do the actual split of training and testing data."""
+    @staticmethod
+    def _do_split(input_data, mix, split_seed, test_size, use_split_seed=True):
+        """Do the split of training and testing data.
+
+        Parameters
+        ----------
+        input_data:
+            The input (X)
+        mix:
+            The output (y)
+        split_seed:
+            a specific random seed to use
+        test_size:
+            The size of the test-set
+        use_split_seed:
+            If the split seed is to be used or not
+        """
         if (mix <= 0).any():
             raise ValueError(
                 "We found negative crosssections. Something is wrong here."
@@ -547,13 +572,13 @@ class Emulator:
                     self.input_scaling(X), verbose=verbose, *args, **kwargs
                 ),
             )
-        else:
-            return self.inv_output_scaling(
-                X,
-                self.model.predict(
-                    self.input_scaling(X).reshape(len(X), -1), *args, **kwargs
-                ),
-            )
+
+        return self.inv_output_scaling(
+            X,
+            self.model.predict(
+                self.input_scaling(X).reshape(len(X), -1), *args, **kwargs
+            ),
+        )
 
     def score(self, validation_set=None):
         """
@@ -668,7 +693,7 @@ class Emulator:
                 "we do not have a trained model yet. Run setup_sampling_grid, setup_mix and setup_model and fit first."
             )
 
-    def export(self, path, format="exorad"):
+    def export(self, path, file_format="exorad"):
         """
         Export the weights
 
@@ -676,15 +701,15 @@ class Emulator:
         ----------
         path: str
             path where the weights should be stored
-        format: str
+        file_format: str
             the format in which the weights should be stored. Can be either exorad or numpy.
         """
         self._check_trained()
         if isinstance(self.model, keras.Model):
             for i, weights in enumerate(self.model.weights):
-                if format == "np" or format == "numpy":
+                if file_format in ('np', 'numpy'):
                     np.save(f"{path}/ml_coeff_{i}.npy", weights.numpy())
-                elif format == "exorad":
+                elif file_format == "exorad":
                     wrmds(
                         f"{path}/ml_coeff_{i}",
                         weights.numpy().flatten(order="F"),
@@ -763,7 +788,7 @@ class Emulator:
                         linthr = abs(weights.numpy()).min()
                         # linthr = 1e-1
                         norm = mcolors.SymLogNorm(
-                            linthresh=linthr, vmin=vmin, vmax=vmax
+                            linthr, vmin=vmin, vmax=vmax
                         )
                         cmap = "BrBG"
                     else:

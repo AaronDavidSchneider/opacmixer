@@ -114,7 +114,7 @@ class ReadOpac:
         self.kcoeff = self.kcoeff[:, :, :, np.asarray(nonzero_index, dtype=bool), :]
 
     def plot_opac(self, pres, temp, spec, ax=None, **plot_kwargs):
-        """Simple pltting of the opacity."""
+        """Simple plotting of the opacity."""
         if ax is None:
             ax = plt.gca()
 

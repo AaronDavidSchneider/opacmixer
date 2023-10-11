@@ -1,3 +1,15 @@
+"""Housing the mixing methods.
+
+There are two mixers: CombineOpacIndividual and CombineOpacGrid
+
+CombineOpacIndividual:
+    - takes arbitrary abundances and temperatures, pressures for each species
+    - slow
+
+CombineOpacGrid:
+    - takes arbitrary abundances but keeps temperatures, pressures for each species from underlying grid
+    - fast
+"""
 from functools import partial
 from multiprocessing.pool import Pool
 
@@ -107,28 +119,82 @@ def _rorr_single(
 
 
 class CombineOpac:
+    """Parent class for CombineOpcacIndividual and CombineOpacGrid"""
     def __init__(self, opac):
         self.opac = opac
         assert (
             self.opac.interp_done
         ), "yo, dude, you need to run setup_temp_and_pres on opac first"
 
+    def add_batch(self, mmr, method=DEFAULT_METHOD):
+        """mix multiple kgrids"""
+        raise NotImplementedError
+
+    def add_batch_parallel(self, mmr, method=DEFAULT_METHOD):
+        """mix multiple kgrids"""
+        raise NotImplementedError
+
 
 class CombineOpacIndividual(CombineOpac):
+    """A class for mixing  """
     def add_batch(self, input_data, method=DEFAULT_METHOD):
-        """mix one kgrid"""
+        """mix one kgrid
+
+        Parameters
+        ----------
+        input_data:
+            input data to be mixed. Should be a two-dimensional array
+            each input data sample should come in the form of (a_1,...,a_N, p, T),
+            where a_i are the abundances and p and T are pressure and Temperature
+        method:
+            The mixing method to be used
+
+        Returns
+        -------
+        kappa (batchsize, lf, lg):
+            The mixed k-tables.
+        """
         input_data = self._check_input_shape(input_data)
         mix_func = self._get_mix_func(method, use_mult=False)
         return mix_func(input_data)
 
     def add_batch_parallel(self, input_data, method=DEFAULT_METHOD):
-        """mix one kgrid"""
+        """mix one kgrid
+
+        Parameters
+        ----------
+        input_data: (batchsize, ls+2)
+            input data to be mixed. Should be a two-dimensional array
+            each input data sample should come in the form of (a_1,...,a_N, p, T),
+            where a_i are the abundances and p and T are pressure and Temperature
+        method:
+            The mixing method to be used
+
+        Returns
+        -------
+        kappa (batchsize, lf, lg):
+            The mixed k-tables.
+        """
         input_data = self._check_input_shape(input_data)
         mix_func = self._get_mix_func(method, use_mult=True)
         return mix_func(input_data)
 
     def _get_mix_func(self, method, use_mult):
-        """Reshapes the mass mixing ratios and check that they are in the correct shape."""
+        """wraps the mixing function together with the underlying opacity data in a partial.
+
+        Parameters
+        ----------
+        method:
+            The mixing method to be used
+        use_mult:
+            use or don't use multiprocessing
+
+        Returns
+        -------
+        f:
+            Function that takes the input data and returns the mix
+
+        """
         if method == "RORR":
             return partial(
                 self._add_rorr,
@@ -138,8 +204,8 @@ class CombineOpacIndividual(CombineOpac):
                 self.opac.pr,
                 use_mult,
             )
-        else:
-            raise NotImplementedError("Method not implemented.")
+
+        raise NotImplementedError("Mixing method not implemented.")
 
     def _check_input_shape(self, input_data):
         """Checks that they are in the correct shape."""
@@ -149,7 +215,31 @@ class CombineOpacIndividual(CombineOpac):
 
     @staticmethod
     def _add_rorr(ktable, weights, temp_old, press_old, use_mult, input_data):
-        """Add up ktables by random overlap with resorting and rebinning."""
+        """Add up ktables by random overlap with resorting and rebinning.
+
+        Parameters
+        ----------
+        ktable (ls, lp, lt, lf, lg):
+            The kgrid with the individual ktables to be mixed,
+            should have the same shape as kcoeff from a ReadOpac class
+        weights (lg):
+            The g-weights to be used
+        temp_old (lt):
+            The temperature in the grid of ktables
+        press_old (lp):
+            The pressure in the grid of ktables
+        use_mult (bool):
+            do multiprocessing or not
+        input_data (batchsize, ls+2):
+            input data to be mixed. Should be a two-dimensional array
+            each input data sample should come in the form of (a_1,...,a_N, p, T),
+            where a_i are the abundances and p and T are pressure and Temperature
+
+        Returns
+        -------
+        kappa (batchsize, lf, lg):
+            The mixed k-tables.
+        """
         Nsamples = input_data.shape[0]
         ls = input_data.shape[1] - 2
         lp_old = np.ones(ls, np.int8) * len(press_old)
