@@ -1,3 +1,3 @@
-from .read import ReadOpacChubb
-from .mix import CombineOpac
 from .emulator import Emulator
+from .mix import CombineOpac
+from .read import ReadOpacChubb

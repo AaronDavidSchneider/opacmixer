@@ -54,9 +54,8 @@ jobs:
           conda list
       - name: Run Tests
         shell: bash -l {0}
-        working-directory: opac_mixer/tests
         run: |
-          py.test --cov=./ --cov-report=xml
+          py.test
       - name: Upload code coverage to Codecov
         uses: codecov/codecov-action@v1
         with:

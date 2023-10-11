@@ -1,6 +1,6 @@
+import tensorflow as tf
 from tensorflow import keras
 from tensorflow.keras import layers
-import tensorflow as tf
 
 
 def get_simple_1d_conv(ng, num_species):

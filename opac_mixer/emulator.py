@@ -10,10 +10,10 @@ from sklearn.model_selection import train_test_split
 from tensorflow import keras
 
 from opac_mixer.utils.callbacks import CustomCallback
-from .mix import CombineOpacGrid
 from opac_mixer.utils.models import get_deepset
-from .read import ReadOpac
 from opac_mixer.utils.scalings import default_input_scaling, default_output_scaling, default_inv_output_scaling
+from .mix import CombineOpacGrid
+from .read import ReadOpac
 
 DEFAULT_PRANGE = (1e-6, 1000, 30)
 DEFAULT_TRANGE = (100, 10000, 30)
@@ -107,7 +107,7 @@ class Emulator:
         ls = [int(opac.ls) for opac in self.opac]
         lg = [int(opac.lg[0]) for opac in self.opac]
 
-        if len(ls)>1:
+        if len(ls) > 1:
             assert np.diff(ls) == 0.0, 'we need the same number of species for all ReadOpac instances'
             assert np.diff(lg) == 0.0, 'we need the same number of g points for all ReadOpac instances'
 
@@ -115,13 +115,26 @@ class Emulator:
         self._ls = ls[0]
         self._input_dim = (self._lg, self._ls)
 
+        if filename_data is not None:
+            self._io = DataIO(filename=filename_data)
+
+        # initialisation of variables
         self._has_input = False
         self._has_mix = False
         self._has_model = False
         self._is_trained = False
 
-        if filename_data is not None:
-            self._io = DataIO(filename=filename_data)
+        self._batchsize_resh = []
+        self._batchsize = []
+        self.abus = []
+        self.verbose = False
+
+        self.X_train = None
+        self.X_test = None
+        self.y_train = None
+        self.y_test = None
+
+        self.input_data = np.empty((0, *self._input_dim))
 
     def setup_scaling(self, input_scaling=None, output_scaling=None, inv_output_scaling=None):
         """
@@ -142,24 +155,20 @@ class Emulator:
             np.testing.assert_allclose(
                 self.inv_output_scaling(self.X_test, self.output_scaling(self.X_test, self.y_test)), self.y_test)
 
-    def setup_sampling_grid(self, approx_batchsize=524288, extra_abus = None, bounds={}):
+    def setup_sampling_grid(self, approx_batchsize=8e5, extra_abus=None, bounds={}):
         """
         Setup the sampling grid. Sampling along MMR and pressure is in logspace.
         Sampling along temperature is in linspace.
 
-        Dimension of a sample: (mmr_0, .., mmr_n, p, T)
-
         Parameters
         ----------
-        batchsize: int
+        approx_batchsize: int
             Number of total sampling points. Needs to be a power of 2 for sobol sampling
         bounds: dict
             the lower and upper bounds for sampling. Shape: {'species':(lower, upper)}
             The key can be either a species name in opac.spec or p and T for pressure and Temperature.
             It will use opac_mixer.emulator.DEFAULT_MMR_RANGES for mmrs, opac_mixer.emulator.DEFAULT_PRANGE for pressure,
             and opac_mixer.emulator.DEFAULT_TRANGE for temperautre for all missing values
-        use_sobol: bool
-            Use sobol sampling. If false, a uniform sampling is used instead.
         extra_abus: np.array(num_sample, ls, lp, lt)
             Extra abundancies (mmrs) used for the training data. Could be e.g., a grid of eq. chem abundancies
 
@@ -179,8 +188,10 @@ class Emulator:
         for opac in self.opac:
             if extra_abus is not None:
                 assert extra_abus.shape[1] == self._ls, 'wrong shape in extra_abus second dimension (number of species)'
-                assert extra_abus.shape[2] == opac.lp[0], 'wrong shape in extra_abus second dimension (number of pressure points)'
-                assert extra_abus.shape[3] == opac.lt[0], 'wrong shape in extra_abus second dimension (number of temperature points)'
+                assert extra_abus.shape[2] == opac.lp[
+                    0], 'wrong shape in extra_abus second dimension (number of pressure points)'
+                assert extra_abus.shape[3] == opac.lt[
+                    0], 'wrong shape in extra_abus second dimension (number of temperature points)'
                 extra_batchsize = int(extra_abus.shape[0])
             else:
                 extra_batchsize = 0
@@ -203,7 +214,7 @@ class Emulator:
 
             # Use a standard uniform distribution
             sample = np.random.uniform(low=0.0, high=1.0,
-                                       size=(batchsize-extra_batchsize, self._ls, opac.lp[0], opac.lt[0]))
+                                       size=(batchsize - extra_batchsize, self._ls, opac.lp[0], opac.lt[0]))
 
             # Scale the sampling to the actual bounds
             # Note: We use loguniform like scaling for mmrs
@@ -220,7 +231,9 @@ class Emulator:
             weighted_kappas = weighted_kappas.transpose((0, 2, 3, 4, 1, 5))
             self.abus.append(abus)
 
-            self.input_data = np.concatenate((self.input_data, weighted_kappas.reshape(batchsize_resh, opac.ls, opac.lg[0]).transpose(0, 2, 1)),axis=0)
+            self.input_data = np.concatenate(
+                (self.input_data, weighted_kappas.reshape(batchsize_resh, opac.ls, opac.lg[0]).transpose(0, 2, 1)),
+                axis=0)
 
         self._check_input_data(self.input_data)
 
@@ -263,7 +276,8 @@ class Emulator:
 
             mixes = np.concatenate((mixes, mix.reshape(batchsize_resh, self._lg)), axis=0)
 
-        self._do_split(self.input_data, mixes, split_seed, test_size, use_split_seed=True)
+        self.X_train, self.X_test, self.y_train, self.y_test = self._do_split(self.input_data, mixes, split_seed,
+                                                                              test_size, use_split_seed=True)
 
         if hasattr(self, "_io"):
             self._io.write_out(mixes, self.input_data, split_seed, test_size)
@@ -305,7 +319,8 @@ class Emulator:
         if split_seed is None:
             split_seed = split_seed_l
 
-        self._do_split(self.input_data, mix, split_seed, test_size, use_split_seed)
+        self.X_train, self.X_test, self.y_train, self.y_test = self._do_split(self.input_data, mix, split_seed,
+                                                                              test_size, use_split_seed)
 
         self._has_input = True
         self._has_mix = True
@@ -317,14 +332,15 @@ class Emulator:
         if (mix <= 0).any():
             raise ValueError('We found negative crosssections. Something is wrong here.')
 
-        self.X_train, self.X_test, self.y_train, self.y_test = train_test_split(
+        return train_test_split(
             input_data,
             mix,
             test_size=test_size,
             random_state=split_seed if use_split_seed else None,
         )
 
-    def setup_model(self, model=None, filename=None, load=False, learning_rate=1e-3, hidden_units=None, verbose=True, **model_kwargs):
+    def setup_model(self, model=None, filename=None, load=False, learning_rate=1e-3, hidden_units=None, verbose=True,
+                    **model_kwargs):
         """
         Setup the emulator model and train it.
         Note: This will reset all previously trained weights in keras models.
@@ -345,7 +361,7 @@ class Emulator:
         learning_rate: float
             (optional): learning rate of optimizer (adam per default, change by setting optimizer=<name>)
         hidden_units: int
-            (optional): number of hidden units in the decoder (per default equals number of g-points)
+            (optional): number of hidden units in the encoder (per default equals number of g-points)
 
         (model_kwargs)
             arguments to pass to keras.compile for construction (only when model=None is used)
@@ -359,7 +375,8 @@ class Emulator:
             self._is_trained = True
         else:
             if not self._has_mix:
-                raise AttributeError('we do not have a mix to work with yet. Run setup_sampling_grid and setup_mix first.')
+                raise AttributeError(
+                    'we do not have a mix to work with yet. Run setup_sampling_grid and setup_mix first.')
 
             if model is None:
                 self.model = get_deepset(ng=self._lg, hidden_units=hidden_units)
@@ -450,7 +467,8 @@ class Emulator:
         # fit the model on the training dataset
         if isinstance(self.model, keras.Model):
             verbose = 0 if not self.verbose else "auto"
-            return self.inv_output_scaling(X, self.model.predict(self.input_scaling(X), verbose=verbose, *args, **kwargs))
+            return self.inv_output_scaling(X,
+                                           self.model.predict(self.input_scaling(X), verbose=verbose, *args, **kwargs))
         else:
             return self.inv_output_scaling(X, self.model.predict(self.input_scaling(X).reshape(len(X), -1), *args,
                                                                  **kwargs))
@@ -552,8 +570,6 @@ class Emulator:
                           dataprec="float64")
                 else:
                     raise NotImplementedError('format is not supported yet.')
-
-
         else:
             raise NotImplementedError('not implemented for the type of model used')
 

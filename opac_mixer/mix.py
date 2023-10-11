@@ -1,12 +1,14 @@
-import numba
-import numpy as np
-import tqdm
-from .utils.interp import interp_2d
 from functools import partial
 from multiprocessing.pool import Pool
 
+import numba
+import numpy as np
+import tqdm
+
+from .utils.interp import interp_2d
 
 DEFAULT_METHOD = 'RORR'
+
 
 @numba.njit(nogil=True, fastmath=True, cache=True)
 def resort_rebin_njit(kout_conv, k1, k2, weights_in, weights_conv, Np, Nt, Nf, Ng):
@@ -14,9 +16,9 @@ def resort_rebin_njit(kout_conv, k1, k2, weights_in, weights_conv, Np, Nt, Nf, N
 
     # Initialize arrays
     kout = np.zeros((Np, Nt, Nf, Ng), dtype=np.float64)
-    len_resort = Ng*Ng
-    kout_conv_resorted = np.zeros(len_resort+1, dtype=np.float64)  # note: We add +1 for the right edge
-    g_resorted = np.zeros(len_resort+1, dtype=np.float64)  # note: We add +1 for the right edge
+    len_resort = Ng * Ng
+    kout_conv_resorted = np.zeros(len_resort + 1, dtype=np.float64)  # note: We add +1 for the right edge
+    g_resorted = np.zeros(len_resort + 1, dtype=np.float64)  # note: We add +1 for the right edge
     ggrid = compute_ggrid(weights_in, Ng)
 
     # Start looping over p, t and freq, because we need to do the resorting and rebinning individually
@@ -29,7 +31,7 @@ def resort_rebin_njit(kout_conv, k1, k2, weights_in, weights_conv, Np, Nt, Nf, N
                 kout_conv_resorted[:len_resort] = kout_conv[pi, ti, freqi][index_sort]
                 weights_resorted = weights_conv[index_sort]
                 # compute new g-grid:
-                g_resorted[:len_resort] = compute_ggrid(weights_resorted, Ng*Ng)
+                g_resorted[:len_resort] = compute_ggrid(weights_resorted, Ng * Ng)
                 # edges:
                 g_resorted[len_resort] = 1.0
                 kout_conv_resorted[len_resort] = k1[pi, ti, freqi, -1] + k2[pi, ti, freqi, -1]
@@ -57,7 +59,7 @@ def compute_ggrid(w, Ng):
 @numba.njit(nogil=True, fastmath=True, cache=True, parallel=False)
 def _rorr_single(ktable, weights, weights_conv, ls, lf, lg, temp_old, press_old, lt_old, lp_old, input_data):
     kout = np.empty((1, 1, lf, lg), dtype=np.float64)
-    kout_conv = np.empty((1, 1, lf, lg*lg), dtype=np.float64)
+    kout_conv = np.empty((1, 1, lf, lg * lg), dtype=np.float64)
     mixed_ktables = np.empty((ls, 1, 1, lf, lg), dtype=np.float64)
 
     temp = np.asarray([input_data[-1]])
@@ -67,7 +69,7 @@ def _rorr_single(ktable, weights, weights_conv, ls, lf, lg, temp_old, press_old,
     ki = interp_2d(temp_old, press_old, temp, press, ktable, ls, lf, lg, lt_old, lp_old, 1, 1)
 
     for speci in range(ls):
-        mixed_ktables[speci, 0, 0, :, :] = mmr[speci]*ki[speci, 0, 0, :, :]
+        mixed_ktables[speci, 0, 0, :, :] = mmr[speci] * ki[speci, 0, 0, :, :]
 
     kout[:, :, :, :] = mixed_ktables[0, :, :, :, :]
 
@@ -76,7 +78,7 @@ def _rorr_single(ktable, weights, weights_conv, ls, lf, lg, temp_old, press_old,
         k2 = mixed_ktables[speci, :, :, :, :]
         for gi in range(lg):
             for gj in range(lg):
-                kout_conv[0, 0, :, gi+lg*gj] = k1[0, 0, :, gj] + k2[0, 0, :, gi]
+                kout_conv[0, 0, :, gi + lg * gj] = k1[0, 0, :, gj] + k2[0, 0, :, gi]
 
         kout = resort_rebin_njit(kout_conv, k1, k2, weights, weights_conv, 1, 1, lf, lg)
 
@@ -120,10 +122,10 @@ class CombineOpacIndividual(CombineOpac):
         """Add up ktables by random overlap with resorting and rebinning."""
         Nsamples = input_data.shape[0]
         ls = input_data.shape[1] - 2
-        lp_old = np.ones(ls, np.int8)*len(press_old)
-        lt_old = np.ones(ls, np.int8)*len(temp_old)
-        temp_old = np.ones((ls, lt_old[0]))*temp_old[np.newaxis,:]
-        press_old = np.ones((ls, lp_old[0]))*press_old[np.newaxis,:]
+        lp_old = np.ones(ls, np.int8) * len(press_old)
+        lt_old = np.ones(ls, np.int8) * len(temp_old)
+        temp_old = np.ones((ls, lt_old[0])) * temp_old[np.newaxis, :]
+        press_old = np.ones((ls, lp_old[0])) * press_old[np.newaxis, :]
         lf = ktable.shape[-2]
         lg = ktable.shape[-1]
 
@@ -131,13 +133,14 @@ class CombineOpacIndividual(CombineOpac):
         assert lp_old[0] == ktable.shape[1]
         assert lt_old[0] == ktable.shape[2]
 
-        weights_conv = np.outer(weights,weights).flatten()
+        weights_conv = np.outer(weights, weights).flatten()
 
         func = partial(_rorr_single, ktable, weights, weights_conv, ls, lf, lg, temp_old, press_old, lt_old, lp_old)
 
         if use_mult:
             with Pool() as pool:
-                return np.asarray(list(tqdm.tqdm(pool.imap(func, input_data, chunksize=100), total=Nsamples)), dtype=np.float64)
+                return np.asarray(list(tqdm.tqdm(pool.imap(func, input_data, chunksize=100), total=Nsamples)),
+                                  dtype=np.float64)
         else:
             return np.asarray(list(tqdm.tqdm(map(func, input_data), total=Nsamples)), dtype=np.float64)
 
@@ -151,13 +154,14 @@ class CombineOpacGrid(CombineOpac):
             return partial(self._add_rorr, self.opac.kcoeff, self.opac.weights)
         else:
             raise NotImplementedError('Method not implemented.')
-    
+
     def _check_mmr_shape(self, mmr):
         """Reshapes the mass mixing ratios and check that they are in the correct shape."""
-        
+
         if isinstance(mmr, dict):
             mmr = np.array([mmr[speci] for speci in self.opac.spec])
-        assert mmr.shape == (self.opac.ls, self.opac.lp[0], self.opac.lt[0]), 'shape of mmr needs to be species, pressure, temperature'
+        assert mmr.shape == (
+        self.opac.ls, self.opac.lp[0], self.opac.lt[0]), 'shape of mmr needs to be species, pressure, temperature'
         return mmr
 
     def add_single(self, mmr, method=DEFAULT_METHOD):
@@ -182,19 +186,20 @@ class CombineOpacGrid(CombineOpac):
     @staticmethod
     def _add_linear(ktable, mmr):
         """linear additive mixing of a kgrid."""
-        return np.sum(ktable*mmr[:,:,:,np.newaxis,np.newaxis], axis=0)
+        return np.sum(ktable * mmr[:, :, :, np.newaxis, np.newaxis], axis=0)
 
     @staticmethod
     def _add_rorr(ktable, weights, mmr):
         """Add up ktables by random overlap with resorting and rebinning."""
-        mixed_ktables = mmr[:, :, :, np.newaxis, np.newaxis]*ktable[:, :, :, :, :]
+        mixed_ktables = mmr[:, :, :, np.newaxis, np.newaxis] * ktable[:, :, :, :, :]
         kout = mixed_ktables[0, :, :, :, :]
         weights_conv = np.outer(weights, weights).flatten()
 
         for speci in range(1, ktable.shape[0]):
             k1 = kout
             k2 = mixed_ktables[speci]
-            kout_conv = (k1[..., :, np.newaxis] + k2[..., np.newaxis, :]).reshape(*kout.shape[:-1], weights_conv.shape[0])
+            kout_conv = (k1[..., :, np.newaxis] + k2[..., np.newaxis, :]).reshape(*kout.shape[:-1],
+                                                                                  weights_conv.shape[0])
             kout = resort_rebin_njit(kout_conv, k1, k2, weights, weights_conv, *kout.shape)
 
         return kout

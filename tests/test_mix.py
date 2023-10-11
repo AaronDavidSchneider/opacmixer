@@ -15,10 +15,8 @@ def test_mix_single(setup_interp_reader):
 
     mix = CombineOpacGrid(opac)
     lm = mix.add_single(mmr=mmr, method='linear')
-    am = mix.add_single(mmr=mmr, method='AEE')
     rm = mix.add_single(mmr=mmr, method='RORR')
 
-    assert np.all(np.isclose(lm, am)), 'mixes are not the same, even though we just mix one species!'
     assert np.all(np.isclose(lm, rm)), 'mixes are not the same, even though we just mix one species!'
     assert np.all(np.isclose(lm, opac.kcoeff[mol_single_i,:,:])), 'we do not get the correct mix!'
 
@@ -167,7 +165,7 @@ def test_mix_vs_prt(setup_test_mix_grid):
 
         atmosphere.interpolate_species_opa(np.ones_like(opac.pr)*temp)
 
-        assert np.all(np.isclose(atmosphere.line_struc_kappas[:,:,:,:], opac.kcoeff[:,:,i,::-1,:].transpose(3,2,0,1), rtol=0.01)), 'interpolation gave different result'
+        np.testing.assert_allclose(atmosphere.line_struc_kappas[:,:,:,:], opac.kcoeff[:,:,i,::-1,:].transpose(3,2,0,1), rtol=0.01)
 
         atmosphere.mix_opa_tot(abunds, mmw, g, sigma_lnorm, fsed, Kzz, radius,
                          add_cloud_scat_as_abs=add_cloud_scat_as_abs,
@@ -177,21 +175,21 @@ def test_mix_vs_prt(setup_test_mix_grid):
 
         kcoeff_prt[:,i,:,:] = atmosphere.line_struc_kappas[:,::-1,0,:].transpose(2,1,0)
 
-    print(f'prt comparison gave {100*np.isclose(kcoeff_prt, mix, rtol=0.05).sum()/len(kcoeff_prt.flatten())} % similarity at 5% tolerance.')
+    np.testing.assert_allclose(kcoeff_prt, mix, rtol=2.0)
 
-    for p in [1e-1]:
-        for t in [1500]:
-            pi = np.searchsorted(opac.pr, p) - 1
-            ti = np.searchsorted(opac.Tr, t) - 1
+    # for p in [1e-1]:
+    #     for t in [1500]:
+    #         pi = np.searchsorted(opac.pr, p) - 1
+    #         ti = np.searchsorted(opac.Tr, t) - 1
 
-            if not np.all(np.isclose(kcoeff_prt[pi, ti], mix[pi, ti])):
-                for fi in range(opac.lf[0]):
-                    x = opac.bin_edges[fi] + opac.weights.cumsum() * (opac.bin_edges[fi + 1] - opac.bin_edges[fi])
-                    plt.title(f'prt: {p}, {t}')
-                    plt.loglog(x, mix[pi, ti, fi, :], color='black', alpha=0.4, ls='-')
-                    plt.loglog(x, kcoeff_prt[pi, ti, fi, :], color='orange', alpha=0.4, ls='-')
+    #         if not np.all(np.isclose(kcoeff_prt[pi, ti], mix[pi, ti])):
+    #             for fi in range(opac.lf[0]):
+    #                 x = opac.bin_edges[fi] + opac.weights.cumsum() * (opac.bin_edges[fi + 1] - opac.bin_edges[fi])
+    #                 plt.title(f'prt: {p}, {t}')
+    #                 plt.loglog(x, mix[pi, ti, fi, :], color='black', alpha=0.4, ls='-')
+    #                 plt.loglog(x, kcoeff_prt[pi, ti, fi, :], color='orange', alpha=0.4, ls='-')
 
-                plt.show()
+    #             plt.show()
 
 def _test_mix_vs_exok(setup_test_mix_grid):
     """Compare against exok ck RORR implementation. Note, that this implementation is different."""

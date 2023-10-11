@@ -47,13 +47,13 @@ def mix_kappa_aee(kappas, w, g, p):
     # np.testing.assert_allclose(np.sum(kmax,axis=2), kappas.shape[2]*kmax[:,:,0,:])
     kappa_av_max_abs = np.take_along_axis(kappa_av, max_abs_br[0, :, :, :], 1)
     # np.testing.assert_allclose(np.sum(kappa_av_max_abs,axis=1), kappas.shape[2]*kappa_av_max_abs[:,0,:])
-    kminor_sum = np.sum(kappa_av, axis=-2) - kappa_av_max_abs[:,0,:]
+    kminor_sum = np.sum(kappa_av, axis=-2) - kappa_av_max_abs[:, 0, :]
     return kmax[:, :, 0, :] + kminor_sum[None, :, :]
 
 
 # @numba.njit(nogil=True, fastmath=True, cache=True)
 def mix_kappa_aee_jit(kappas, w, g, p, lg, lf, ls, lp):
-    kappa_av = np.zeros((lf,ls,lp))
+    kappa_av = np.zeros((lf, ls, lp))
     tau = np.zeros(ls)
 
     kmax = np.empty((lg, lp))
@@ -63,14 +63,14 @@ def mix_kappa_aee_jit(kappas, w, g, p, lg, lf, ls, lp):
 
     w_sum = np.sum(w)
     for gi in range(lg):
-        kappa_av[:,:,:] = kappa_av[:,:,:] + w[gi]*kappas[gi,:,:,:]/w_sum
+        kappa_av[:, :, :] = kappa_av[:, :, :] + w[gi] * kappas[gi, :, :, :] / w_sum
 
     for fi in range(lf):
         tau_tot = 0.0
         tau[:] = 0.0
-        for ki in range(lp-1):
+        for ki in range(lp - 1):
             for si in range(ls):
-                tau[si] = tau[si] + kappa_av[fi, si, ki] * (p[ki+1] - p[ki])/g
+                tau[si] = tau[si] + kappa_av[fi, si, ki] * (p[ki + 1] - p[ki]) / g
                 tau_tot = tau_tot + tau[si]
 
             if tau_tot > 1:
