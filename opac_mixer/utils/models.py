@@ -11,14 +11,14 @@ def get_simple_1d_conv(ng, num_species):
 
     Parameters
     ----------
-    ng (int):
+    ng: int
         number of $g$ values
-    num_species (int):
+    num_species: int
         number of species to be mixed (fixed)
 
     Returns
     -------
-    model (keras.Model):
+    model: keras.Model
         a keras model
     """
     model = keras.Sequential()
@@ -51,14 +51,14 @@ def get_simple_mlp(ng, hidden_units=None):
 
     Parameters
     ----------
-    ng (int):
+    ng: int
         number of $g$ values
-    hidden_units (int):
+    hidden_units: int
         number of units in the dense layers
 
     Returns
     -------
-    model (keras.Model):
+    model: keras.Model
         a keras model
     """
     if hidden_units is None:
@@ -81,14 +81,14 @@ def get_deepset(ng, hidden_units=None):
 
     Parameters
     ----------
-    ng (int):
+    ng: int
         number of $g$ values
-    hidden_units (int):
+    hidden_units: int
         number of units in the encoding dense layer
 
     Returns
     -------
-    model (keras.Model):
+    model: keras.Model
         a keras model
     """
     if hidden_units is None:
@@ -117,16 +117,16 @@ def get_unet_1d(ng, species, min_filters=8):
 
     Parameters
     ----------
-    ng (int):
+    ng: int
         number of $g$ values
-    species (int):
+    species: int
         number of species to be mixed
-    min_filters (int):
+    min_filters: int
         number of filters in the first convolution layer
 
     Returns
     -------
-    model (keras.Model):
+    model: keras.Model
         a keras model
     """
 

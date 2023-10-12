@@ -9,7 +9,7 @@ try:
     from numpy.distutils.core import Extension
     from numpy.distutils.core import setup
 except ImportError:
-    raise NoNumpy("Numpy Needs to be installed " "for extensions to be compiled.")
+    raise NoNumpy("Numpy Needs to be installed for extensions to be compiled.")
 
 
 with open("README.md", "r") as fh:
@@ -30,7 +30,7 @@ fort_bol_flux = Extension(
 
 setup(
     name="opac_mixer",
-    version="v0.1",
+    version="v1.0",
     packages=setuptools.find_packages(),
     include_package_data=True,
     url="https://github.com/aarondavidschneider/opac_mixer",

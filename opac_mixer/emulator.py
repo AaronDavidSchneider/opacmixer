@@ -50,7 +50,14 @@ class DataIO:
     """IO Class for storing the emulator"""
 
     def __init__(self, filename):
-        """Setup the IO class"""
+        """
+        Setup the IO class
+
+        Parameters
+        ----------
+        filename: str
+            The filename of the IO
+        """
         self.filename = filename
 
     def load(self):
@@ -69,7 +76,20 @@ class DataIO:
         return mix, input_data, split_seed, test_size
 
     def write_out(self, mix, input_data, split_seed, test_size):
-        """write data"""
+        """
+        write data
+
+        Parameters
+        ----------
+        mix: array(batchsize, lg)
+            The mixed k-tables
+        input_data: array(batchsize, lg, ls)
+            The input data
+        split_seed: float
+            The random seed used in splitting training and test data
+        test_size: float
+            The size of the training set
+        """
         with h5py.File(self.filename, "w") as f:
             inp_ds = f.create_dataset(
                 "input", input_data.shape, dtype=input_data.dtype
@@ -98,13 +118,13 @@ class Emulator:
 
         Parameters
         ----------
-        opac (opac_mixer.read.ReadOpac):
+        opac: opac_mixer.read.ReadOpac
             a list of input opacity readers. Can be setup, but does not need to. Will do the setup itself otherwise.
-        prange_opacset (array(3)):
+        prange_opacset: array(3)
             optional, the range to which the reader should interpolate the pressure grid to (lower, upper, num_points).
-        trange_opacset (array(3)):
+        trange_opacset: array(3)
             optional, the range to which the reader should interpolate the temperature grid to (lower, upper, num_points).
-        filename_data (str):
+        filename_data: str
             A filename, used to save the training and testing data to
         """
         if isinstance(opac, list):
@@ -183,6 +203,18 @@ class Emulator:
         (optional) Change the callback functions for the scaling of in and output.
         Defaults are given as opac_mixer.scalings.default_<name>.
         See opac_mixer/utils/scalings.py for inspiration
+
+        Parameters
+        ----------
+        input_scaling: function or None
+            The function to use for input scaling.
+            If None, use opac_mixer.scalings.default_input_scaling
+        output_scaling: function or None
+            The function to use for output scaling.
+            If None, use opac_mixer.scalings.default_output_scaling
+        inv_output_scaling: function or None
+            The function to use for output scaling.
+            If None, use opac_mixer.scalings.default_inv_output_scaling
         """
         if input_scaling is not None:
             self.input_scaling = input_scaling
@@ -216,14 +248,14 @@ class Emulator:
 
         Parameters
         ----------
-        approx_batchsize (int):
+        approx_batchsize: int
             Number of total sampling points. Needs to be a power of 2 for sobol sampling
-        bounds (dict or None):
+        bounds: dict or None
             the lower and upper bounds for sampling. Shape: {'species':(lower, upper)}
             The key can be either a species name in opac.spec or p and T for pressure and Temperature.
             It will use opac_mixer.emulator.DEFAULT_MMR_RANGES for mmrs, opac_mixer.emulator.DEFAULT_PRANGE for pressure,
             and opac_mixer.emulator.DEFAULT_TRANGE for temperautre for all missing values
-        extra_abus (array(num_sample, ls, lp, lt)):
+        extra_abus: array(num_sample, ls, lp, lt)
             Extra abundancies (mmrs) used for the training data. Could be e.g., a grid of eq. chem abundancies
 
         Returns
@@ -332,7 +364,7 @@ class Emulator:
 
         Parameters
         ----------
-        input_data (array(batchsize, opac.lg, opac.ls)):
+        input_data: array(batchsize, opac.lg, opac.ls
             The input data
         """
         shape = input_data.shape
@@ -346,11 +378,11 @@ class Emulator:
 
         Parameters
         ----------
-        test_size (float):
+        test_size: float
             fraction of data used for testing
-        split_seed (int):
+        split_seed: int
             A seed to be used for shuffling training and test data before splitting
-        do_parallel (bool):
+        do_parallel bool
             If you want to create the data in parallel or not
         """
         if not self._has_input:
@@ -398,13 +430,13 @@ class Emulator:
 
         Parameters
         ----------
-        filename (str):
+        filename: str
             optional, can be set either here or in the constructor. Make sure the filename comes without the npy suffix
-        test_size (float):
+        test_size: float
             optional, use a different test size than the one loaded
-        split_seed (int):
+        split_seed: int
             optional, use a different seed to shuffle data before spliting training and testing data
-        use_split_seed (bool):
+        use_split_seed: bool
             optional, if true, it will just use the provided or loaded split seed, else it will create a new random one
         """
 
@@ -442,15 +474,15 @@ class Emulator:
 
         Parameters
         ----------
-        input_data:
+        input_data: array(batchsize, opac.lg, opac.ls)
             The input (X)
-        mix:
+        mix: array(batchsize, opac.lg)
             The output (y)
-        split_seed (float):
+        split_seed: float
             a specific random seed to use
-        test_size (float):
+        test_size: float
             The size of the test-set
-        use_split_seed (bool):
+        use_split_seed: bool
             If the split seed is to be used or not
         """
         if (mix <= 0).any():
@@ -481,20 +513,20 @@ class Emulator:
 
         Parameters
         ----------
-        model (sklearn compatible model):
+        model: sklearn compatible model
             (optional): a model to learn. Needs to be contructed already. Use DeepSet by default
-        filename (str or None):
+        filename: str or None
             optional, A filename to save the model
-        load (bool):
+        load: bool
             optional, load a -pretrained- model instead of constructing one
 
 
         Parameters for DeepSet
         ----------------------
         Check keras.compile docs for more arguments. Any extra argument is directly passed to keras.compile
-        learning_rate (float):
+        learning_rate: float
             optional, learning rate of optimizer (adam per default, change by setting optimizer=<name>)
-        hidden_units (int):
+        hidden_units: int
             optional, number of hidden units in the encoder (per default equals number of g-points)
 
         (model_kwargs)
@@ -601,7 +633,7 @@ class Emulator:
 
         Parameters
         ----------
-        X (array like (num_samples, input_dim)):
+        X: array(num_samples, opac.lg, opac.ls
             The values you want predictions for
         args:
             Whatever you want to pass to the model for prediction
@@ -634,8 +666,10 @@ class Emulator:
 
         Parameters
         ----------
-        validation_set (list(X_test, y_test)):
+        validation_set: list(X_test, y_test)
             validation set to be used instead of (self.X_test, self.y_test)
+            Note the dimensions of X_test: array(num_samples, opac.lg, opac.ls)
+            and y_test: array(num_samples, opac.lg)
         """
         if validation_set is None:
             X_test = self.X_test
@@ -766,9 +800,9 @@ class Emulator:
 
         Parameters
         ----------
-        path (str):
+        path: str
             path where the weights should be stored
-        file_format (str):
+        file_format: str
             the format in which the weights should be stored. Can be either exorad or numpy.
         """
         self._check_trained()
@@ -797,6 +831,8 @@ class Emulator:
         ----------
         validation_set: list(X_test, y_test)
             validation set to be used instead of (self.X_test, self.y_test)
+            Note the dimensions of X_test: array(num_samples, opac.lg, opac.ls)
+            and y_test: array(num_samples, opac.lg)
         """
 
         if validation_set is None:
@@ -864,7 +900,9 @@ class Emulator:
                         vmin = -vmax
                         linthr = abs(weights.numpy()).min()
                         # linthr = 1e-1
-                        norm = mcolors.SymLogNorm(linthr, vmin, vmax)
+                        norm = mcolors.SymLogNorm(
+                            linthr=linthr, vmin=vmin, vmax=vmax
+                        )
                         cmap = "BrBG"
                     else:
                         norm = mcolors.LogNorm()

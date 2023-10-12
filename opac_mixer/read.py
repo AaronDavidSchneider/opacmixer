@@ -8,7 +8,7 @@ from .utils.interp import interp_2d
 
 
 class ReadOpac:
-    """ "
+    """
     The opacity reader base class
 
     The reader class only needs to define a read in function and pass important metadata to the constructor of the parent class. That's it.
@@ -30,37 +30,13 @@ class ReadOpac:
     3. `self.p (array(ls, max(lp)))`: array holding the pressure values in bar at which the k-table grid is defined
     4. `self.bin_edges (array(ls, lf[0]+1))`: array holding the wave number ($1/lambda$) values in 1/cm of the edges of the wavenumber grid at which the k-table grid is defined
     5. `self.bin_center (array(ls, lf[0]))`: array holding the wave number ($1/lambda$) values in 1/cm of the center of the wavenumber grid at which the k-table grid is defined.
-    5. `self.weights (array(ls, lg[0]))`: array holding the weights of the k-tables (see below for conversion from $g$ values)
-    6. `self.kcoeff (array(ls, max(lp), max(lt), lf[0], lg[0])`: array holding the actual values of the k-table grid in cm2/g.
+    6. `self.weights (array(ls, lg[0]))`: array holding the weights of the k-tables (see below for conversion from $g$ values)
+    7. `self.kcoeff (array(ls, max(lp), max(lt), lf[0], lg[0])`: array holding the actual values of the k-table grid in cm2/g.
 
     Note, the data arrays are initialized with space up unto the maximum number of temperature and pressure grid points, hence the `max(lt)` and `max(lp)`.
 
     Note, that we need weights instead of g-values. The conversion between the two can be done using these two functions:
-
-    def compute_ggrid(w, Ng):
-        '''Helper function that calculates the ggrid for given weights. Works on a halfinteger grid.'''
-        cum_sum = 0.0
-        gcomp = np.empty(Ng)
-
-        for i in range(Ng):
-            gcomp[i] = cum_sum + 0.5 * w[i]
-            cum_sum = cum_sum + w[i]
-
-        return gcomp
-
-    def compute_weights(g, Ng):
-        '''Calculate weights from g values'''
-        weights = np.empty(Ng)
-
-        cum_sum = 0.0
-        for i in range(Ng):
-            weights[i] = 2.0*(g[i] - cum_sum)
-            cum_sum = cum_sum + weights[i]
-
-        return weights
-
-    # Verify that both functions are compatible
-    np.testing.assert_allclose(weights, compute_weights(compute_ggrid(weights,len(weights)),len(weights)))
+    compute_ggrid(w, Ng), compute_weights(g, Ng) from mix.py
     """
 
     def __init__(self, ls, lp, lt, lf, lg):
@@ -69,15 +45,15 @@ class ReadOpac:
 
         Parameters
         ----------
-        ls (int):
+        ls: int
             number of species that are read in
-        lp (array(ls)):
+        lp: array(ls)
             array that holds the number of pressure grid points for each species
-        lt (array(ls)):
+        lt: array(ls)
             array that holds the number of temperature grid points for each species
-        lf (array(ls)):
+        lf: array(ls)
             array that holds the number of frequency grid points for each species
-        lg (array(ls)):
+        lg: array(ls)
             array that holds the number of $g$ grid points for each species
         """
 
@@ -130,10 +106,10 @@ class ReadOpac:
 
         Parameters
         ----------
-        temp (optional, array-like):
+        temp: optional, array-like
             A 1D temperature array (K) to which the k-table grid should be interpolated to.
             If not set, it wil use a linspace grid between the maximum and minimum found in the temperature grids.
-        pres (optional, array-like):
+        pres: optional, array-like
             A 1D pressure array (bar) to which the k-table grid should be interpolated to.
             If not set, it wil use a logspace grid between the maximum and minimum found in the pressure grids.
 
@@ -224,20 +200,20 @@ class ReadOpac:
 
         Parameters
         ----------
-        pres (float):
+        pres: float
             pressure at which the opacity is to be plotted, will pick closest lower point
-        temp (float):
+        temp: float
             temperature at which the opacity is to be plotted, will pick closest lower point
-        spec (str):
+        spec: str
             name of species to plot
-        ax (matplotlib ax):
+        ax: matplotlib ax
             optional, matplotlib ax object on which the plot should be placed
         plot_kwargs:
             everything else will be just passed to the plotting routine
 
         Returns
         -------
-        lines (list):
+        lines: list
             list of line plots
         """
         if ax is None:
@@ -270,7 +246,7 @@ class ReadOpacChubb(ReadOpac):
 
         Parameters
         ----------
-        files (list):
+        files: list
             A list of filenames of the h5 files in which the k-tables are stored.
         """
         ls = len(

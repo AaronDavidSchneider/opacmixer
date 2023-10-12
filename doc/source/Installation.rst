@@ -1,10 +1,16 @@
 Installation
 ------------
 
+Make sure you use a fresh anaconda environment, so that you don't mess up anything.
+
+The code has minimal requirements. The biggest requirement is ``tensorflow``, which should be installed in preparation.
+
+If you want to couple it to ``petitRADTRANS``, you might consider installing ``petitRADTRANS`` as well
+
 pip
 ^^^
 
-Future: once the project is on pypi, you can install it via
+You can install the code from pypi
 
 .. code-block:: bash
 

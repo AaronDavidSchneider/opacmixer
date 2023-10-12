@@ -11,3 +11,4 @@ exclude =
     build,
     dist,
     tests/*.py
+    opac_mixer/patches/*.py

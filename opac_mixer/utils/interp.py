@@ -5,18 +5,18 @@ import numpy as np
 
 @numba.njit(nogil=True, fastmath=True, cache=True)
 def interp_2d(
-        temp_old,
-        press_old,
-        temp_new,
-        press_new,
-        kcoeff,
-        ls,
-        lf,
-        lg,
-        lt_old,
-        lp_old,
-        lt_new,
-        lp_new,
+    temp_old,
+    press_old,
+    temp_new,
+    press_new,
+    kcoeff,
+    ls,
+    lf,
+    lg,
+    lt_old,
+    lp_old,
+    lt_new,
+    lp_new,
 ):
     """
     Function that does a bilinear interpolation on k-tables in 2D to correct pressure and temperature.
@@ -32,21 +32,21 @@ def interp_2d(
         the temperature values to which we interpolate
     press_new (array(lp_new)):
         the pressure values to which we interpolate
-    kcoeff (array(ls, lp_old, lt_old, lf, lg):
+    kcoeff: array(ls, lp_old, lt_old, lf, lg
         the k-table which is to be interpolated to new pressure temperature values
-    ls (int):
+    ls: int
         Number of opacity species in k-table grid
-    lf (int):
+    lf: int
         Number of frequency points in k-table grid
-    lg (int):
+    lg: int
         Number of $g$ values in k-table grid
-    lt_old (int):
+    lt_old: int
         number of temperature points in original grid
-    lp_old (int):
+    lp_old: int
         number of pressure points in original grid
-    lt_new (int):
+    lt_new: int
         number of temperature points to which we interpolate
-    lp_new (int):
+    lp_new: int
         number of pressure points to which we interpolate
 
     Returns
@@ -74,26 +74,52 @@ def interp_2d(
                     )
                 # interp to new temperature (for all -new- pressures)
                 for pi in range(lp_new):
-                    pt_interp[pi, :] = np.interp(temp_new, to_i, p_interp[pi, :])
+                    pt_interp[pi, :] = np.interp(
+                        temp_new, to_i, p_interp[pi, :]
+                    )
 
                 # Do edges
                 for pi in range(lp_new):
                     for ti in range(lt_new):
-                        if press_new[pi] < min(po_i) and temp_new[ti] < min(to_i):
+                        if press_new[pi] < min(po_i) and temp_new[ti] < min(
+                            to_i
+                        ):
                             pt_interp[pi, ti] = kcoeff[
-                                speci, np.argmin(po_i), np.argmin(to_i), freqi, gi
+                                speci,
+                                np.argmin(po_i),
+                                np.argmin(to_i),
+                                freqi,
+                                gi,
                             ]
-                        elif press_new[pi] < min(po_i) and temp_new[ti] > max(to_i):
+                        elif press_new[pi] < min(po_i) and temp_new[ti] > max(
+                            to_i
+                        ):
                             pt_interp[pi, ti] = kcoeff[
-                                speci, np.argmin(po_i), np.argmax(to_i), freqi, gi
+                                speci,
+                                np.argmin(po_i),
+                                np.argmax(to_i),
+                                freqi,
+                                gi,
                             ]
-                        elif press_new[pi] > max(po_i) and temp_new[ti] < min(to_i):
+                        elif press_new[pi] > max(po_i) and temp_new[ti] < min(
+                            to_i
+                        ):
                             pt_interp[pi, ti] = kcoeff[
-                                speci, np.argmax(po_i), np.argmin(to_i), freqi, gi
+                                speci,
+                                np.argmax(po_i),
+                                np.argmin(to_i),
+                                freqi,
+                                gi,
                             ]
-                        elif press_new[pi] > max(po_i) and temp_new[ti] > max(to_i):
+                        elif press_new[pi] > max(po_i) and temp_new[ti] > max(
+                            to_i
+                        ):
                             pt_interp[pi, ti] = kcoeff[
-                                speci, np.argmax(po_i), np.argmax(to_i), freqi, gi
+                                speci,
+                                np.argmax(po_i),
+                                np.argmax(to_i),
+                                freqi,
+                                gi,
                             ]
 
                 kcoeff_new[speci, :, :, freqi, gi] = pt_interp

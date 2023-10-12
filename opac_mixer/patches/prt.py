@@ -23,11 +23,17 @@ def simple_deep_set(kappas, weights):
     return dec
 
 
-def mix_kappa_deep_set(kappas, weights, input_scaling, inverse_output_scaling, *args):
+def mix_kappa_deep_set(
+    kappas, weights, input_scaling, inverse_output_scaling, *args
+):
     """
     Kappa mixing for a DeepSet
     """
-    shape_pred = (kappas.shape[1] * kappas.shape[3], kappas.shape[0], kappas.shape[2])
+    shape_pred = (
+        kappas.shape[1] * kappas.shape[3],
+        kappas.shape[0],
+        kappas.shape[2],
+    )
     shape = kappas.shape[0], kappas.shape[1], kappas.shape[-1]
     kappas_resh = kappas.transpose(1, 3, 0, 2).reshape(shape_pred)
     kout = inverse_output_scaling(
@@ -43,13 +49,18 @@ def mix_kappa_add(kappas, *args):
 
 def mix_kappa_aee(kappas, w, g, p):
     """Adaptive equivilant extinction"""
-    kappa_av = np.sum(kappas[:, :, :, :] * w[:, None, None, None], axis=0) / np.sum(
-        w, axis=0
+    kappa_av = np.sum(
+        kappas[:, :, :, :] * w[:, None, None, None], axis=0
+    ) / np.sum(w, axis=0)
+    tau_tot = (
+        np.cumsum(np.sum(kappa_av[:, :, :-1], axis=1) * np.diff(p), axis=-1)
+        / g
     )
-    tau_tot = np.cumsum(np.sum(kappa_av[:, :, :-1], axis=1) * np.diff(p), axis=-1) / g
     kappas_thin = np.where(tau_tot[:, None, :] < 1, kappa_av[:, :, :-1], 0.0)
     max_abs = np.argmax(np.sum(kappas_thin * np.diff(p), axis=-1), -1)
-    max_abs_br = np.ones_like(kappas, dtype="int") * max_abs[None, :, None, None]
+    max_abs_br = (
+        np.ones_like(kappas, dtype="int") * max_abs[None, :, None, None]
+    )
     kmax = np.take_along_axis(kappas, max_abs_br, 2)
     # np.testing.assert_allclose(np.sum(kmax,axis=2), kappas.shape[2]*kmax[:,:,0,:])
     kappa_av_max_abs = np.take_along_axis(kappa_av, max_abs_br[0, :, :, :], 1)
@@ -70,14 +81,18 @@ def mix_kappa_aee_jit(kappas, w, g, p, lg, lf, ls, lp):
 
     w_sum = np.sum(w)
     for gi in range(lg):
-        kappa_av[:, :, :] = kappa_av[:, :, :] + w[gi] * kappas[gi, :, :, :] / w_sum
+        kappa_av[:, :, :] = (
+            kappa_av[:, :, :] + w[gi] * kappas[gi, :, :, :] / w_sum
+        )
 
     for fi in range(lf):
         tau_tot = 0.0
         tau[:] = 0.0
         for ki in range(lp - 1):
             for si in range(ls):
-                tau[si] = tau[si] + kappa_av[fi, si, ki] * (p[ki + 1] - p[ki]) / g
+                tau[si] = (
+                    tau[si] + kappa_av[fi, si, ki] * (p[ki + 1] - p[ki]) / g
+                )
                 tau_tot = tau_tot + tau[si]
 
             if tau_tot > 1:
@@ -120,12 +135,14 @@ class PatchedRadtrans(Radtrans):
             if input_scaling is None:
                 input_scaling = t_x
                 print(
-                    "Warning: Default scaling is used for the input, change if needed"
+                    "Warning: Default scaling is used for the input, change if"
+                    " needed"
                 )
             if inverse_output_scaling is None:
                 inverse_output_scaling = ti_y
                 print(
-                    "Warning: Default scaling is used for the output, change if needed"
+                    "Warning: Default scaling is used for the output, change"
+                    " if needed"
                 )
             if weights is None:
                 raise ValueError("we need some weights")
@@ -148,7 +165,9 @@ class PatchedRadtrans(Radtrans):
         elif self._mixmethod == "aee":
             return mix_kappa_aee(kappas, self.w_gauss, g, self.press)
         elif self._mixmethod == "aee_jit":
-            return mix_kappa_aee_jit(kappas, self.w_gauss, g, self.press, *kappas.shape)
+            return mix_kappa_aee_jit(
+                kappas, self.w_gauss, g, self.press, *kappas.shape
+            )
         elif self._mixmethod == "rorr":
             return fs.combine_opas_ck(kappas, self.g_gauss, self.w_gauss)
         else:
@@ -178,11 +197,15 @@ class PatchedRadtrans(Radtrans):
         self.scat = False
 
         for i_spec in range(len(self.line_species)):
-            self.line_abundances[:, i_spec] = abundances[self.line_species[i_spec]]
+            self.line_abundances[:, i_spec] = abundances[
+                self.line_species[i_spec]
+            ]
 
         self.continuum_opa = np.zeros_like(self.continuum_opa)
         self.continuum_opa_scat = np.zeros_like(self.continuum_opa_scat)
-        self.continuum_opa_scat_emis = np.zeros_like(self.continuum_opa_scat_emis)
+        self.continuum_opa_scat_emis = np.zeros_like(
+            self.continuum_opa_scat_emis
+        )
 
         # Calc. CIA opacity
         for key in self.CIA_species.keys():
@@ -240,7 +263,9 @@ class PatchedRadtrans(Radtrans):
         if self.kappa_zero is not None:
             self.scat = True
             wlen_micron = nc.c / self.freq / 1e-4
-            scattering_add = self.kappa_zero * (wlen_micron / 0.35) ** self.gamma_scat
+            scattering_add = (
+                self.kappa_zero * (wlen_micron / 0.35) ** self.gamma_scat
+            )
             add_term = np.repeat(
                 scattering_add[None], int(len(self.press)), axis=0
             ).transpose()
@@ -253,7 +278,10 @@ class PatchedRadtrans(Radtrans):
         # a single cloud model. Combining cloud opacities
         # from different models is currently not supported
         # with the hack_cloud_photospheric_tau parameter
-        if len(self.cloud_species) > 0 and self.hack_cloud_photospheric_tau is not None:
+        if (
+            len(self.cloud_species) > 0
+            and self.hack_cloud_photospheric_tau is not None
+        ):
             if (
                 give_absorption_opacity is not None
                 or give_scattering_opacity is not None
@@ -333,7 +361,9 @@ class PatchedRadtrans(Radtrans):
         # in frequency space. All opacities are
         # stored in the first species index slot
         if (self.mode == "lbl") and (int(len(self.line_species)) > 1):
-            self.line_struc_kappas[:, :, 0, :] = np.sum(self.line_struc_kappas, axis=2)
+            self.line_struc_kappas[:, :, 0, :] = np.sum(
+                self.line_struc_kappas, axis=2
+            )
 
         self.time_opa = time.time() - t
 
@@ -374,61 +404,61 @@ class PatchedRadtrans(Radtrans):
                 Dictionary keys are the species names.
                 Every mass fraction array
                 has same length as pressure array.
-            gravity (float):
+            gravity: float
                 Surface gravity in cgs. Vertically constant for emission
                 spectra.
             mmw:
                 the atmospheric mean molecular weight in amu,
                 at each atmospheric layer
                 (1-d numpy array, same length as pressure array).
-            sigma_lnorm (Optional[float]):
+            sigma_lnorm: Optional[float]
                 width of the log-normal cloud particle size distribution
-            fsed (Optional[float]):
+            fsed: Optional[float]
                 cloud settling parameter
-            Kzz (Optional):
+            Kzz: Optional
                 the atmospheric eddy diffusion coeffiecient in cgs untis
                 (i.e. :math:`\\rm cm^2/s`),
                 at each atmospheric layer
                 (1-d numpy array, same length as pressure array).
-            radius (Optional):
+            radius: Optional
                 dictionary of mean particle radii for all cloud species.
                 Dictionary keys are the cloud species names.
                 Every radius array has same length as pressure array.
-            gray_opacity (Optional[float]):
+            gray_opacity: Optional[float]
                 Gray opacity value, to be added to the opacity at all
                 pressures and wavelengths (units :math:`\\rm cm^2/g`)
-            Pcloud (Optional[float]):
+            Pcloud: Optional[float]
                 Pressure, in bar, where opaque cloud deck is added to the
                 absorption opacity.
-            kappa_zero (Optional[float]):
+            kappa_zero: Optional[float]
                 Scattering opacity at 0.35 micron, in cgs units (cm^2/g).
-            gamma_scat (Optional[float]):
+            gamma_scat: Optional[float]
                 Has to be given if kappa_zero is definded, this is the
                 wavelength powerlaw index of the parametrized scattering
                 opacity.
-            add_cloud_scat_as_abs (Optional[bool]):
+            add_cloud_scat_as_abs: Optional[bool]
                 If ``True``, 20 % of the cloud scattering opacity will be
                 added to the absorption opacity, introduced to test for the
                 effect of neglecting scattering.
-            Tstar (Optional[float]):
+            Tstar: Optional[float]
                 The temperature of the host star in K, used only if the
                 scattering is considered. If not specified, the direct
                 light contribution is not calculated.
-            Rstar (Optional[float]):
+            Rstar: Optional[float]
                 The radius of the star in Solar radii. If specified,
                 used to scale the to scale the stellar flux,
                 otherwise it uses PHOENIX radius.
-            semimajoraxis (Optional[float]):
+            semimajoraxis: Optional[float]
                 The distance of the planet from the star. Used to scale
                 the stellar flux when the scattering of the direct light
                 is considered.
-            geometry (Optional[string]):
+            geometry: Optional[string]
                 if equal to ``'dayside_ave'``: use the dayside average
                 geometry. if equal to ``'planetary_ave'``: use the
                 planetary average geometry. if equal to
                 ``'non-isotropic'``: use the non-isotropic
                 geometry.
-            theta_star (Optional[float]):
+            theta_star: Optional[float]
                 Inclination angle of the direct light with respect to
                 the normal to the atmosphere. Used only in the
                 non-isotropic geometry scenario.
@@ -475,7 +505,9 @@ class PatchedRadtrans(Radtrans):
     def calc_RT_bolometric(self):
         # Calculate the bolometric flux
         if not self.do_scat_emis:
-            self.photon_destruction_prob = np.ones_like(self.total_tau[:, :, 0, :])
+            self.photon_destruction_prob = np.ones_like(
+                self.total_tau[:, :, 0, :]
+            )
 
         # Only use 0 index for species because for lbl or test_ck_shuffle_comp = True
         # everything has been moved into the 0th index

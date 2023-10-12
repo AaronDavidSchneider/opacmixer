@@ -24,15 +24,16 @@ def logr2(y_true, y_pred):
 
 class CustomCallback(keras.callbacks.Callback):
     """A custom callback for keras that prints out custom metrics"""
+
     def __init__(self, emulator, num_test=10000, errorfuncs=None):
         """
         Constructor of the callback class
 
         Parameters
         ----------
-        emulator (Emulator):
+        emulator: Emulator
             the Emulator instance
-        num_test (int):
+        num_test: int
             The size of the test set used for validation
         errorfuncs (list(functions) or None):
             list of functions that are used for validation
@@ -51,7 +52,11 @@ class CustomCallback(keras.callbacks.Callback):
         self._validation_set_names = ["train", "test"]
 
         for X, y in validation_sets:
-            valset = (X, y, np.random.randint(len(y), size=min([num_test, len(y)])))
+            valset = (
+                X,
+                y,
+                np.random.randint(len(y), size=min([num_test, len(y)])),
+            )
             self.validation_sets.append(valset)
         self.errorfuncs = errorfuncs
 
@@ -61,15 +66,16 @@ class CustomCallback(keras.callbacks.Callback):
 
         Parameters
         ----------
-        epoch (int):
+        epoch: int
             the epoch
-        logs (None or list):
+        logs: None or list
             The logs from keras which have the loss
         """
         errs = []
         for X_test, y_test, ti in self.validation_sets:
             y_pred = self._ti_y(
-                X_test[ti], self.model.predict(self._t_x(X_test[ti]), verbose=0)
+                X_test[ti],
+                self.model.predict(self._t_x(X_test[ti]), verbose=0),
             )
             errs.append([err(y_test[ti], y_pred) for err in self.errorfuncs])
 
@@ -77,7 +83,8 @@ class CustomCallback(keras.callbacks.Callback):
             "("
             + "); (".join(
                 [
-                    f"{name} - " + ", ".join(["{:.2e}".format(err) for err in errs_i])
+                    f"{name} - "
+                    + ", ".join(["{:.2e}".format(err) for err in errs_i])
                     for errs_i, name in zip(errs, self._validation_set_names)
                 ]
             )

@@ -3,12 +3,14 @@
 There are two mixers: CombineOpacIndividual and CombineOpacGrid
 
 CombineOpacIndividual:
-    - takes arbitrary abundances and temperatures, pressures for each species
-    - slow
+-- takes arbitrary abundances and temperatures, pressures for each species
+-- slow
 
 CombineOpacGrid:
-    - takes arbitrary abundances but keeps temperatures, pressures for each species from underlying grid
-    - fast
+-- takes arbitrary abundances but keeps temperatures, pressures for each species from underlying grid
+-- fast
+
+The current implementation of the Emulator builds on the CombineOpacGrid, since its faster
 """
 from functools import partial
 from multiprocessing.pool import Pool
@@ -32,23 +34,23 @@ def resort_rebin_njit(
 
     Parameters
     ----------
-    kout_conv (array(Np, Nt, Nf, Ng*Ng)):
+    kout_conv: array(Np, Nt, Nf, Ng*Ng)
         the convoluted k-tables of species one and two
-    k1 (array(Np, Nt, Nf, Ng)):
+    k1: array(Np, Nt, Nf, Ng)
         ktable of species one
-    k2 (array(Np, Nt, Nf, Ng)):
+    k2: array(Np, Nt, Nf, Ng)
         ktable of species two
-    weights_in (Ng):
+    weights_in: Ng
         The original weights (Delta g)
-    weights_conv (Ng*Ng):
+    weights_conv: Ng*Ng
         The weights of the convoluted k-tables (Delta g_1 * Delta g_2)
-    Np (int):
+    Np: int
         number of pressure points in k-table grid
-    Nt (int):
+    Nt: int
         number of temperature points in k-table grid
-    Nf (int):
+    Nf: int
         number of frequency points in k-table grid
-    Ng (int):
+    Ng: int
         number of g value grid points in k-table grid
 
     Returns
@@ -105,15 +107,15 @@ def compute_ggrid(w, Ng):
 
     Parameters
     ----------
-    w (array(Ng)):
+    w: array(Ng)
         weights ($Delta g$)
-    Ng (int):
+    Ng: int
         number of weights/ $g$-values
 
 
     Returns
     -------
-    gcomp (array(Ng)):
+    gcomp: array(Ng)
         The $g$ values
     """
     cum_sum = 0.0
@@ -133,9 +135,9 @@ def compute_weights(g, Ng):
 
     Parameters
     ----------
-    g (array(Ng)):
+    g: array(Ng)
         $g$ values
-    Ng (int):
+    Ng: int
         number of weights/ $g$-values
 
     Returns
@@ -173,32 +175,32 @@ def _rorr_single(
 
     Parameters
     ----------
-    ktable (array(ls,lp,lt,lf,lg)):
+    ktable: array(ls,lp,lt,lf,lg)
         The complete ktable grid
-    weights (array(lg)):
+    weights: array(lg)
         The weights ($Delta g$)
-    weights_conv (array(lg*lg)):
+    weights_conv: array(lg*lg)
         The convoluted weights ($Delta g_1*Delta g_2$)
-    ls (int):
+    ls: int
         number of species
-    lf (int):
+    lf: int
         number of frequency points
-    lg (int):
+    lg: int
         number of $g$ values
-    temp_old (array(lt)):
+    temp_old: array(lt)
         the temperature grid of the ktable grid
-    press_old (array(lp)):
+    press_old: array(lp)
         the pressure grid of the ktable grid
-    lt_old (int):
+    lt_old: int
         the number of temperature grid points in the ktable grid
-    lp_old (int):
+    lp_old: int
         the number of pressure grid points in the ktable grid
-    input_data (array(ls+2)):
+    input_data: array(ls+2)
         an array holding the individual abundances (mass mixing ratios) a_1,...,a_Ns ,
         Should come in the form of (a_1,...,a_N, p, T),
     Returns
     -------
-    kout (array(lf,lg)):
+    kout: array(lf,lg)
         the RORR mixed ktable at p and T from input_data
 
     """
@@ -255,7 +257,7 @@ class CombineOpac:
 
         Parameters
         ----------
-        opac (ReadOpac instance):
+        opac: ReadOpac instance
             An instance of an ReadOpac child class, which has already been interpolated
         """
         self.opac = opac
@@ -281,16 +283,16 @@ class CombineOpacIndividual(CombineOpac):
 
         Parameters
         ----------
-        input_data (array(batchsize, ls+2)):
+        input_data: array(batchsize, ls+2)
             input data to be mixed. Should be a two-dimensional array
             each input data sample should come in the form of (a_1,...,a_N, p, T),
             where a_i are the abundances and p and T are pressure and Temperature
-        method (str):
+        method: str
             The mixing method to be used (only RORR supported).
 
         Returns
         -------
-        kappa (batchsize, lf, lg):
+        kappa: batchsize, lf, lg
             The mixed k-tables.
         """
         input_data = self._check_input_shape(input_data)
@@ -302,16 +304,16 @@ class CombineOpacIndividual(CombineOpac):
 
         Parameters
         ----------
-        input_data (array(batchsize, ls+2)):
+        input_data: array(batchsize, ls+2)
             input data to be mixed. Should be a two-dimensional array
             each input data sample should come in the form of (a_1,...,a_N, p, T),
             where a_i are the abundances and p and T are pressure and Temperature
-        method (str):
+        method: str
             The mixing method to be used (only RORR supported)
 
         Returns
         -------
-        kappa (array(batchsize, lf, lg)):
+        kappa: array(batchsize, lf, lg)
             The mixed k-tables.
         """
         input_data = self._check_input_shape(input_data)
@@ -323,9 +325,9 @@ class CombineOpacIndividual(CombineOpac):
 
         Parameters
         ----------
-        method (str):
+        method: str
             The mixing method to be used (only RORR supported)
-        use_mult (bool):
+        use_mult: bool
             use or don't use multiprocessing
 
         Returns
@@ -373,25 +375,25 @@ class CombineOpacIndividual(CombineOpac):
 
         Parameters
         ----------
-        ktable (array(ls, lp, lt, lf, lg)):
+        ktable: array(ls, lp, lt, lf, lg)
             The kgrid with the individual ktables to be mixed,
             should have the same shape as kcoeff from a ReadOpac class
-        weights (array(lg)):
+        weights: array(lg)
             The g-weights to be used
-        temp_old (array(lt)):
+        temp_old: array(lt)
             The temperature in the grid of ktables
-        press_old (array(lp)):
+        press_old: array(lp)
             The pressure in the grid of ktables
-        use_mult (bool):
+        use_mult: bool
             do multiprocessing or not
-        input_data (array(batchsize, ls+2)):
+        input_data: array(batchsize, ls+2)
             input data to be mixed. Should be a two-dimensional array
             each input data sample should come in the form of (a_1,...,a_N, p, T),
             where a_i are the abundances and p and T are pressure and Temperature
 
         Returns
         -------
-        kappa (array(batchsize, lf, lg)):
+        kappa: array(batchsize, lf, lg)
             The mixed k-tables.
         """
         Nsamples = input_data.shape[0]
@@ -451,13 +453,13 @@ class CombineOpacGrid(CombineOpac):
 
         Parameters
         ----------
-        method (str):
+        method: str
             Can be RORR, or linear.
             The mixing method to be used
 
         Returns
         -------
-        f:
+        f: function
             The mixing function
 
         """
@@ -476,13 +478,13 @@ class CombineOpacGrid(CombineOpac):
 
         Parameters
         ----------
-        mmr (array(ls, lp, lt)) or dict:
+        mmr: array(ls, lp, lt) or dict
             The mass mxing ratios for every pressure-temperature grid point for all species.
             The mmr could be a dictionary of species names {spec_i: mmr_i for spec_i in self.opac.spec}
 
         Returns
         -------
-        mmr (array(ls, lp, lt)):
+        mmr: array(ls, lp, lt)
             The mass mixing ratios in proper shape
         """
 
@@ -501,16 +503,16 @@ class CombineOpacGrid(CombineOpac):
 
         Parameters
         ----------
-        input_data (array(ls, lp, lt)) or dict:
+        input_data: array(ls, lp, lt) or dict:
             The mass mxing ratios for every pressure-temperature grid point for all species.
             The mmr could be a dictionary of species names {spec_i: mmr_i for spec_i in self.opac.spec}
-        method (str):
+        method: str
             Can be RORR, or linear.
             The mixing method to be used
 
         Returns
         -------
-        kout (array(lp,lt,lf,lg)):
+        kout: array(lp,lt,lf,lg)
             The mixed k tables
         """
         mmr = self._check_mmr_shape(input_data)
@@ -523,16 +525,16 @@ class CombineOpacGrid(CombineOpac):
 
         Parameters
         ----------
-        input_data (array(batchsize, ls, lp, lt)) or dict:
+        input_data: array(batchsize, ls, lp, lt) or dict
             The mass mxing ratios for every pressure-temperature grid point for all species.
             The mmr could be a dictionary of species names {spec_i: mmr_i for spec_i in self.opac.spec}
-        method (str):
+        method: str
             Can be RORR, or linear.
             The mixing method to be used
 
         Returns
         -------
-        kout (array(batchsize, lp,lt,lf,lg)):
+        kout: array(batchsize, lp,lt,lf,lg)
             The mixed k tables
         """
         mmr = [self._check_mmr_shape(mmr_i) for mmr_i in input_data]
@@ -546,19 +548,19 @@ class CombineOpacGrid(CombineOpac):
 
         Parameters
         ----------
-        input_data (array(batchsize, ls, lp, lt)) or dict:
+        input_data: array(batchsize, ls, lp, lt) or dict
             The mass mxing ratios for every pressure-temperature grid point for all species.
             The mmr could be a dictionary of species names {spec_i: mmr_i for spec_i in self.opac.spec}
-        method (str):
+        method: str
             Can be RORR, or linear.
             The mixing method to be used
-        pool_kwargs (dict):
+        pool_kwargs: dict
             anything else that may be of interest for the multiprocessing.Pool instance
             (e.g., pool size, etc.)
 
         Returns
         -------
-        kout (array(batchsize, lp,lt,lf,lg)):
+        kout: array(batchsize, lp,lt,lf,lg)
             The mixed k tables
         """
         mmr = [self._check_mmr_shape(mmr_i) for mmr_i in input_data]
@@ -576,14 +578,14 @@ class CombineOpacGrid(CombineOpac):
 
         Parameters
         ----------
-        ktable (array(ls,lp,lt,lf,lg)):
+        ktable: array(ls,lp,lt,lf,lg)
             the ktable to be mixed
-        mmr (array(ls, lp, lt)):
+        mmr: array(ls, lp, lt)
             The mass mxing ratios for every pressure-temperature grid point for all species.
 
         Returns
         -------
-        kout (array(lp,lt,lf,lg)):
+        kout: array(lp,lt,lf,lg)
             The mixed k tables
         """
         return np.sum(ktable * mmr[:, :, :, np.newaxis, np.newaxis], axis=0)
@@ -595,16 +597,16 @@ class CombineOpacGrid(CombineOpac):
 
         Parameters
         ----------
-        ktable (array(ls,lp,lt,lf,lg)):
+        ktable: array(ls,lp,lt,lf,lg)
             the ktable to be mixed
-        weights (array(lg)):
+        weights: array(lg)
             The weights ($Delta g$) of the k-tables
-        mmr (array(ls, lp, lt)):
+        mmr: array(ls, lp, lt)
             The mass mxing ratios for every pressure-temperature grid point for all species.
 
         Returns
         -------
-        kout (array(lp,lt,lf,lg)):
+        kout: array(lp,lt,lf,lg)
             The mixed k tables
         """
 
