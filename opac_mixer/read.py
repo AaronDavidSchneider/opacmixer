@@ -28,8 +28,8 @@ class ReadOpac:
     1. `self.spec (array(ls)`: array holding the names of the opacity species
     2. `self.T (array(ls, max(lt)))`: array holding the temperature in K at which the k-table grid is defined
     3. `self.p (array(ls, max(lp)))`: array holding the pressure values in bar at which the k-table grid is defined
-    4. `self.bin_edges (array(ls, lf[0]+1))`: array holding the wave number ($1/\lambda$) values in 1/cm of the edges of the wavenumber grid at which the k-table grid is defined
-    5. `self.bin_center (array(ls, lf[0]))`: array holding the wave number ($1/\lambda$) values in 1/cm of the center of the wavenumber grid at which the k-table grid is defined.
+    4. `self.bin_edges (array(ls, lf[0]+1))`: array holding the wave number ($1/lambda$) values in 1/cm of the edges of the wavenumber grid at which the k-table grid is defined
+    5. `self.bin_center (array(ls, lf[0]))`: array holding the wave number ($1/lambda$) values in 1/cm of the center of the wavenumber grid at which the k-table grid is defined.
     5. `self.weights (array(ls, lg[0]))`: array holding the weights of the k-tables (see below for conversion from $g$ values)
     6. `self.kcoeff (array(ls, max(lp), max(lt), lf[0], lg[0])`: array holding the actual values of the k-table grid in cm2/g.
 

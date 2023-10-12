@@ -37,9 +37,9 @@ def resort_rebin_njit(kout_conv, k1, k2, weights_in, weights_conv, Np, Nt, Nf, N
     k2 (array(Np, Nt, Nf, Ng)):
         ktable of species two
     weights_in (Ng):
-        The original weights (\Delta g)
+        The original weights (Delta g)
     weights_conv (Ng*Ng):
-        The weights of the convoluted k-tables (\Delta g_1 * \Delta g_2)
+        The weights of the convoluted k-tables (Delta g_1 * Delta g_2)
     Np (int):
         number of pressure points in k-table grid
     Nt (int):
@@ -98,7 +98,7 @@ def compute_ggrid(w, Ng):
     Parameters
     ----------
     w (array(Ng)):
-        weights ($\Delta g$)
+        weights ($Delta g$)
     Ng (int):
         number of weights/ $g$-values
 
@@ -121,7 +121,7 @@ def compute_ggrid(w, Ng):
 @numba.njit(nogil=True, fastmath=True, cache=True)
 def compute_weights(g, Ng):
     """
-    Calculate $g$ values from weights ($\Delta g$)
+    Calculate $g$ values from weights ($Delta g$)
 
     Parameters
     ----------
@@ -133,7 +133,7 @@ def compute_weights(g, Ng):
     Returns
     -------
     weights (array(Ng)):
-        The weights ($\Delta g$)
+        The weights ($Delta g$)
     """
     weights = np.empty(Ng)
 
@@ -168,9 +168,9 @@ def _rorr_single(
     ktable (array(ls,lp,lt,lf,lg)):
         The complete ktable grid
     weights (array(lg)):
-        The weights ($\Delta g$)
+        The weights ($Delta g$)
     weights_conv (array(lg*lg)):
-        The convoluted weights ($\Delta g_1*\Delta g_2$)
+        The convoluted weights ($Delta g_1*Delta g_2$)
     ls (int):
         number of species
     lf (int):
@@ -240,11 +240,11 @@ class CombineOpac:
             self.opac.interp_done
         ), "yo, dude, you need to run setup_temp_and_pres on opac first"
 
-    def add_batch(self, mmr, method=DEFAULT_METHOD):
+    def add_batch(self, input_data, method=DEFAULT_METHOD):
         """mix multiple kgrids. Needs to be implemented in child class."""
         raise NotImplementedError
 
-    def add_batch_parallel(self, mmr, method=DEFAULT_METHOD):
+    def add_batch_parallel(self, input_data, method=DEFAULT_METHOD):
         """mix multiple kgrids. Needs to be implemented in child class."""
         raise NotImplementedError
 
@@ -438,7 +438,7 @@ class CombineOpacGrid(CombineOpac):
         if method == "linear":
             # A simple sum
             return partial(self._add_linear, self.opac.kcoeff)
-        elif method == "RORR":
+        if method == "RORR":
             # The RORR method
             return partial(self._add_rorr, self.opac.kcoeff, self.opac.weights)
         else:
@@ -469,13 +469,13 @@ class CombineOpacGrid(CombineOpac):
         ), "shape of mmr needs to be species, pressure, temperature"
         return mmr
 
-    def add_single(self, mmr, method=DEFAULT_METHOD):
+    def add_single(self, input_data, method=DEFAULT_METHOD):
         """
         mix one kgrid
 
         Parameters
         ----------
-        mmr (array(ls, lp, lt)) or dict:
+        input_data (array(ls, lp, lt)) or dict:
             The mass mxing ratios for every pressure-temperature grid point for all species.
             The mmr could be a dictionary of species names {spec_i: mmr_i for spec_i in self.opac.spec}
         method (str):
@@ -487,17 +487,17 @@ class CombineOpacGrid(CombineOpac):
         kout (array(lp,lt,lf,lg)):
             The mixed k tables
         """
-        mmr = self._check_mmr_shape(mmr)
+        mmr = self._check_mmr_shape(input_data)
         mix_func = self._get_mix_func(method)
         return mix_func(mmr)
 
-    def add_batch(self, mmr, method=DEFAULT_METHOD):
+    def add_batch(self, input_data, method=DEFAULT_METHOD):
         """
         mix the kgrid multiple times.
 
         Parameters
         ----------
-        mmr (array(batchsize, ls, lp, lt)) or dict:
+        input_data (array(batchsize, ls, lp, lt)) or dict:
             The mass mxing ratios for every pressure-temperature grid point for all species.
             The mmr could be a dictionary of species names {spec_i: mmr_i for spec_i in self.opac.spec}
         method (str):
@@ -509,16 +509,16 @@ class CombineOpacGrid(CombineOpac):
         kout (array(batchsize, lp,lt,lf,lg)):
             The mixed k tables
         """
-        mmr = [self._check_mmr_shape(mmr_i) for mmr_i in mmr]
+        mmr = [self._check_mmr_shape(mmr_i) for mmr_i in input_data]
         mix_func = self._get_mix_func(method)
         return np.asarray([mix_func(mmr_i) for mmr_i in tqdm.tqdm(mmr)])
 
-    def add_batch_parallel(self, mmr, method=DEFAULT_METHOD, **pool_kwargs):
+    def add_batch_parallel(self, input_data, method=DEFAULT_METHOD, **pool_kwargs):
         """Parallel version of add_batch
 
         Parameters
         ----------
-        mmr (array(batchsize, ls, lp, lt)) or dict:
+        input_data (array(batchsize, ls, lp, lt)) or dict:
             The mass mxing ratios for every pressure-temperature grid point for all species.
             The mmr could be a dictionary of species names {spec_i: mmr_i for spec_i in self.opac.spec}
         method (str):
@@ -533,7 +533,7 @@ class CombineOpacGrid(CombineOpac):
         kout (array(batchsize, lp,lt,lf,lg)):
             The mixed k tables
         """
-        mmr = [self._check_mmr_shape(mmr_i) for mmr_i in mmr]
+        mmr = [self._check_mmr_shape(mmr_i) for mmr_i in input_data]
         mix_func = self._get_mix_func(method)
         with Pool(**pool_kwargs) as pool:
             return np.asarray(
@@ -570,7 +570,7 @@ class CombineOpacGrid(CombineOpac):
         ktable (array(ls,lp,lt,lf,lg)):
             the ktable to be mixed
         weights (array(lg)):
-            The weights ($\Delta g$) of the k-tables
+            The weights ($Delta g$) of the k-tables
         mmr (array(ls, lp, lt)):
             The mass mxing ratios for every pressure-temperature grid point for all species.
 
