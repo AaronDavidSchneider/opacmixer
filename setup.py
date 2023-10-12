@@ -5,10 +5,10 @@ with open("README.md", "r") as fh:
 
 setup(
     name="opac_mixer",
-    version="v1.0",
+    version="v1.0.1",
     packages=find_packages(),
     include_package_data=True,
-    url="https://github.com/aarondavidschneider/opac_mixer",
+    url="https://opacmixer.readthedocs.io/en/latest/",
     license="MIT",
     author="Aaron David Schneider",
     author_email="aaron.schneider@nbi.ku.dk",
