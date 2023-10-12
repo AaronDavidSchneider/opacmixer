@@ -8,7 +8,7 @@ from .utils.interp import interp_2d
 
 
 class ReadOpac:
-    """"
+    """ "
     The opacity reader base class
 
     The reader class only needs to define a read in function and pass important metadata to the constructor of the parent class. That's it.
@@ -62,6 +62,7 @@ class ReadOpac:
     # Verify that both functions are compatible
     np.testing.assert_allclose(weights, compute_weights(compute_ggrid(weights,len(weights)),len(weights)))
     """
+
     def __init__(self, ls, lp, lt, lf, lg):
         """
         Construct the reader. Initialize all arrays.
@@ -91,18 +92,32 @@ class ReadOpac:
             (self.ls, self.lp.max(), self.lt.max(), self.lf[0], self.lg[0]),
             dtype=np.float64,
         )
-        self.bin_edges = np.zeros(self.lf[0] + 1, dtype=np.float64)  # wavenumbers at edges (1/lambda) in 1/cm
-        self.bin_center = np.zeros(self.lf[0], dtype=np.float64)     # wavenumbers at center(1/lambda) in 1/cm
-        self.weights = np.zeros(self.lg[0], dtype=np.float64)        # ktable weights of distribution function
-        self.T = np.zeros((self.ls, self.lt.max()), dtype=np.float64)  # temperature of k-table grid for each species in K
-        self.p = np.zeros((self.ls, self.lp.max()), dtype=np.float64)  # pressure of k-table grid for each species in bar
-        self.spec = self.ls * [""]    # names of opacity species
+        self.bin_edges = np.zeros(
+            self.lf[0] + 1, dtype=np.float64
+        )  # wavenumbers at edges (1/lambda) in 1/cm
+        self.bin_center = np.zeros(
+            self.lf[0], dtype=np.float64
+        )  # wavenumbers at center(1/lambda) in 1/cm
+        self.weights = np.zeros(
+            self.lg[0], dtype=np.float64
+        )  # ktable weights of distribution function
+        self.T = np.zeros(
+            (self.ls, self.lt.max()), dtype=np.float64
+        )  # temperature of k-table grid for each species in K
+        self.p = np.zeros(
+            (self.ls, self.lp.max()), dtype=np.float64
+        )  # pressure of k-table grid for each species in bar
+        self.spec = self.ls * [""]  # names of opacity species
 
         # Initialize reduced arrays (will only be set during interpolation)
-        self.pr = np.empty(self.lp.max(), dtype=np.float64)   # pressure in interpolated k table grid
-        self.Tr = np.empty(self.lt.max(), dtype=np.float64)   # temperature in interpolated k table grid
-        self.interp_done = False                              # flag to indicate sucessful interpolation
-        self.read_done = False                                # flag to indicate read in
+        self.pr = np.empty(
+            self.lp.max(), dtype=np.float64
+        )  # pressure in interpolated k table grid
+        self.Tr = np.empty(
+            self.lt.max(), dtype=np.float64
+        )  # temperature in interpolated k table grid
+        self.interp_done = False  # flag to indicate sucessful interpolation
+        self.read_done = False  # flag to indicate read in
 
     def read_opac(self):
         """read in the opacity, dependent on the opac IO model."""
@@ -127,14 +142,18 @@ class ReadOpac:
 
         assert self.read_done, "run read_opac first"
         if pres is None:
-            pmin = min([min(self.p[i, : self.lp[i]]) for i in range(self.ls)])
-            pres = np.logspace(np.log10(pmin), np.log10(self.p.max()), len(self.p[0]))
+            pmin = min(min(self.p[i, : self.lp[i]]) for i in range(self.ls))
+            pres = np.logspace(
+                np.log10(pmin), np.log10(self.p.max()), len(self.p[0])
+            )
         else:
             pres = np.array(pres)
 
         if temp is None:
-            tmin = min([min(self.T[i, : self.lt[i]]) for i in range(self.ls)])
-            temp = np.logspace(np.log10(tmin), np.log10(self.T.max()), len(self.T[0]))
+            tmin = min(min(self.T[i, : self.lt[i]]) for i in range(self.ls))
+            temp = np.logspace(
+                np.log10(tmin), np.log10(self.T.max()), len(self.T[0])
+            )
         else:
             temp = np.array(temp)
 
@@ -171,7 +190,8 @@ class ReadOpac:
         nonzero_index = np.empty((self.ls, self.lf[0]))
         for i in range(self.ls):
             nonzero_index[i] = np.all(
-                self.kcoeff[i, : self.lp[i], : self.lt[i], :, :], axis=(0, 1, 3)
+                self.kcoeff[i, : self.lp[i], : self.lt[i], :, :],
+                axis=(0, 1, 3),
             )
 
         # Search for common zeros in every species
@@ -194,7 +214,9 @@ class ReadOpac:
         self.lf = np.repeat(np.count_nonzero(nonzero_index), self.ls)
         self.bin_edges = self.bin_edges[np.asarray(edges_nonzero, dtype=bool)]
         self.bin_center = 0.5 * (self.bin_edges[1:] + self.bin_edges[:-1])
-        self.kcoeff = self.kcoeff[:, :, :, np.asarray(nonzero_index, dtype=bool), :]
+        self.kcoeff = self.kcoeff[
+            :, :, :, np.asarray(nonzero_index, dtype=bool), :
+        ]
 
     def plot_opac(self, pres, temp, spec, ax=None, **plot_kwargs):
         """
@@ -215,7 +237,7 @@ class ReadOpac:
 
         Returns
         -------
-        l (list):
+        lines (list):
             list of line plots
         """
         if ax is None:
@@ -227,18 +249,21 @@ class ReadOpac:
         print("p:", self.p[speci, pi])
         print("T:", self.T[speci, ti])
 
-        l = []
+        lines = []
         for fi in range(self.lf[0]):
             x = self.bin_edges[fi] + self.weights.cumsum() * (
                 self.bin_edges[fi + 1] - self.bin_edges[fi]
             )
-            l.append(ax.loglog(x, self.kcoeff[speci, pi, ti, fi, :], **plot_kwargs))
+            lines.append(
+                ax.loglog(x, self.kcoeff[speci, pi, ti, fi, :], **plot_kwargs)
+            )
 
-        return l
+        return lines
 
 
 class ReadOpacChubb(ReadOpac):
     """A ktable grid reader for the ExomolOP-pRT k-table format"""
+
     def __init__(self, files) -> None:
         """
         Construct the chubb reader for the ExomolOP-pRT k-table format.
@@ -248,7 +273,9 @@ class ReadOpacChubb(ReadOpac):
         files (list):
             A list of filenames of the h5 files in which the k-tables are stored.
         """
-        ls = len(files)  # Number of opacity species is the number of k-table grid files
+        ls = len(
+            files
+        )  # Number of opacity species is the number of k-table grid files
         self._files = files  # This is custom to this reader, since we do the readin later
 
         # initialize the arrays that hold the dimensions
@@ -263,7 +290,7 @@ class ReadOpacChubb(ReadOpac):
         # read in this metadata for all species
         for i, file in enumerate(files):
             with h5py.File(file) as f:
-                lp[i], lt[i], lf[i], lg[i] = f["kcoeff"].shape
+                lp[i], lt[i], lf[i], lg[i] = np.array(f["kcoeff"]).shape
 
         # call the parent constructor with the metadata
         super().__init__(ls, lp, lt, lf, lg)
@@ -289,16 +316,22 @@ class ReadOpacChubb(ReadOpac):
 
                 # convert k-table grid from cm2/mol to cm2/g:
                 conversion_factor = 1 / (
-                        np.float64(f["mol_mass"][0]) * const.atomic_mass * 1000
+                    np.float64(f["mol_mass"][0]) * const.atomic_mass * 1000
                 )
-                kcoeff = np.array(f["kcoeff"], dtype=np.float64) * conversion_factor
+                kcoeff = (
+                    np.array(f["kcoeff"], dtype=np.float64) * conversion_factor
+                )
 
                 # store ktable grid
                 self.kcoeff[i, : self.lp[i], : self.lt[i], :, :] = kcoeff
 
         # Do the check if the frequencies and g values are the same for all species
-        assert np.all(bin_edges[1:, :] == bin_edges[:-1, :]), "frequency needs to match"
-        assert np.all(weights[1:, :] == weights[:-1, :]), "g grid needs to match"
+        assert np.all(
+            bin_edges[1:, :] == bin_edges[:-1, :]
+        ), "frequency needs to match"
+        assert np.all(
+            weights[1:, :] == weights[:-1, :]
+        ), "g grid needs to match"
 
         # store the weights and frequency edges
         self.weights = weights[0, :]

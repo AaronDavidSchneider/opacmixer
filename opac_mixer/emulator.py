@@ -6,7 +6,11 @@ import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
 import numpy as np
 from MITgcmutils import wrmds
-from sklearn.metrics import mean_squared_error, mean_squared_log_error, r2_score
+from sklearn.metrics import (
+    mean_squared_error,
+    mean_squared_log_error,
+    r2_score,
+)
 from sklearn.model_selection import train_test_split
 from tensorflow import keras
 
@@ -67,7 +71,9 @@ class DataIO:
     def write_out(self, mix, input_data, split_seed, test_size):
         """write data"""
         with h5py.File(self.filename, "w") as f:
-            inp_ds = f.create_dataset("input", input_data.shape, dtype=input_data.dtype)
+            inp_ds = f.create_dataset(
+                "input", input_data.shape, dtype=input_data.dtype
+            )
             mix_ds = f.create_dataset("mix", mix.shape, dtype=input_data.dtype)
             mix_ds.attrs["split_seed"] = split_seed
             mix_ds.attrs["test_size"] = test_size
@@ -81,11 +87,11 @@ class Emulator:
     """
 
     def __init__(
-            self,
-            opac,
-            prange_opacset=DEFAULT_PRANGE,
-            trange_opacset=DEFAULT_TRANGE,
-            filename_data=None,
+        self,
+        opac,
+        prange_opacset=DEFAULT_PRANGE,
+        trange_opacset=DEFAULT_TRANGE,
+        filename_data=None,
     ):
         """
         Construct the emulator class.
@@ -108,7 +114,8 @@ class Emulator:
             self.opac = [opac]
         else:
             raise ValueError(
-                "opac needs to be either a list of ReadOpac or a ReadOpac instance"
+                "opac needs to be either a list of ReadOpac or a ReadOpac"
+                " instance"
             )
 
         for opac_i in self.opac:
@@ -135,10 +142,10 @@ class Emulator:
 
         if len(ls) > 1:
             assert (
-                    np.diff(ls) == 0.0
+                np.diff(ls) == 0.0
             ), "we need the same number of species for all ReadOpac instances"
             assert (
-                    np.diff(lg) == 0.0
+                np.diff(lg) == 0.0
             ), "we need the same number of g points for all ReadOpac instances"
 
         self._lg = lg[0]
@@ -170,7 +177,7 @@ class Emulator:
         self.input_data = np.empty((0, *self._input_dim))
 
     def setup_scaling(
-            self, input_scaling=None, output_scaling=None, inv_output_scaling=None
+        self, input_scaling=None, output_scaling=None, inv_output_scaling=None
     ):
         """
         (optional) Change the callback functions for the scaling of in and output.
@@ -187,7 +194,8 @@ class Emulator:
         if hasattr(self, "X_train"):
             np.testing.assert_allclose(
                 self.inv_output_scaling(
-                    self.X_train, self.output_scaling(self.X_train, self.y_train)
+                    self.X_train,
+                    self.output_scaling(self.X_train, self.y_train),
                 ),
                 self.y_train,
             )
@@ -199,7 +207,9 @@ class Emulator:
                 self.y_test,
             )
 
-    def setup_sampling_grid(self, approx_batchsize=8e5, extra_abus=None, bounds=None):
+    def setup_sampling_grid(
+        self, approx_batchsize=8e5, extra_abus=None, bounds=None
+    ):
         """
         Setup the sampling grid. Sampling along MMR and pressure is in logspace.
         Sampling along temperature is in linspace.
@@ -232,20 +242,25 @@ class Emulator:
 
         for opac in self.opac:
             if extra_abus is not None:
-                assert (
-                        extra_abus.shape[1] == self._ls
-                ), "wrong shape in extra_abus second dimension (number of species)"
-                assert (
-                        extra_abus.shape[2] == opac.lp[0]
-                ), "wrong shape in extra_abus second dimension (number of pressure points)"
-                assert (
-                        extra_abus.shape[3] == opac.lt[0]
-                ), "wrong shape in extra_abus second dimension (number of temperature points)"
+                assert extra_abus.shape[1] == self._ls, (
+                    "wrong shape in extra_abus second dimension (number of"
+                    " species)"
+                )
+                assert extra_abus.shape[2] == opac.lp[0], (
+                    "wrong shape in extra_abus second dimension (number of"
+                    " pressure points)"
+                )
+                assert extra_abus.shape[3] == opac.lt[0], (
+                    "wrong shape in extra_abus second dimension (number of"
+                    " temperature points)"
+                )
                 extra_batchsize = int(extra_abus.shape[0])
             else:
                 extra_batchsize = 0
 
-            batchsize = int(approx_batchsize) // opac.lp[0] // opac.lt[0] // opac.lf[0]
+            batchsize = (
+                int(approx_batchsize) // opac.lp[0] // opac.lt[0] // opac.lf[0]
+            )
             batchsize_resh = batchsize * opac.lp[0] * opac.lt[0] * opac.lf[0]
             self._batchsize_resh.append(batchsize_resh)
             self._batchsize.append(batchsize)
@@ -265,7 +280,12 @@ class Emulator:
             sample = np.random.uniform(
                 low=0.0,
                 high=1.0,
-                size=(batchsize - extra_batchsize, self._ls, opac.lp[0], opac.lt[0]),
+                size=(
+                    batchsize - extra_batchsize,
+                    self._ls,
+                    opac.lp[0],
+                    opac.lt[0],
+                ),
             )
 
             # Scale the sampling to the actual bounds
@@ -274,8 +294,8 @@ class Emulator:
             abus = np.exp(
                 sample[:, :, :, :]
                 * (
-                        np.log(u_bounds)[np.newaxis, :, np.newaxis, np.newaxis]
-                        - np.log(l_bounds)[np.newaxis, :, np.newaxis, np.newaxis]
+                    np.log(u_bounds)[np.newaxis, :, np.newaxis, np.newaxis]
+                    - np.log(l_bounds)[np.newaxis, :, np.newaxis, np.newaxis]
                 )
                 + np.log(l_bounds)[np.newaxis, :, np.newaxis, np.newaxis]
             )
@@ -284,7 +304,8 @@ class Emulator:
                 abus = np.concatenate((abus, extra_abus), axis=0)
 
             weighted_kappas = (
-                    abus[:, :, :, :, np.newaxis, np.newaxis] * opac.kcoeff[np.newaxis, ...]
+                abus[:, :, :, :, np.newaxis, np.newaxis]
+                * opac.kcoeff[np.newaxis, ...]
             )
             weighted_kappas = weighted_kappas.transpose((0, 2, 3, 4, 1, 5))
             self.abus.append(abus)
@@ -306,6 +327,14 @@ class Emulator:
         return self.input_data
 
     def _check_input_data(self, input_data):
+        """
+        Checks the shape of the input data and raises an error if wrong
+
+        Parameters
+        ----------
+        input_data (array(batchsize, opac.lg, opac.ls)):
+            The input data
+        """
         shape = input_data.shape
         if len(shape) != 3 or shape[1:] != self._input_dim:
             raise ValueError("input data does not match")
@@ -330,12 +359,12 @@ class Emulator:
             )
 
         if split_seed is None:
-            split_seed = np.random.randint(2 ** 32 - 1)
+            split_seed = np.random.randint(2**32 - 1)
 
         # make sure the filename comes without the npy suffix
         mixes = np.empty((0, self._lg))
         for mixer, abus, batchsize_resh in zip(
-                self.mixer, self.abus, self._batchsize_resh
+            self.mixer, self.abus, self._batchsize_resh
         ):
             if do_parallel:
                 mix = mixer.add_batch_parallel(abus)
@@ -358,7 +387,11 @@ class Emulator:
         return self.X_train, self.X_test, self.y_train, self.y_test
 
     def load_data(
-            self, filename=None, test_size=None, split_seed=None, use_split_seed=True
+        self,
+        filename=None,
+        test_size=None,
+        split_seed=None,
+        use_split_seed=True,
     ):
         """
         Load the training and test data from a h5 file.
@@ -377,8 +410,8 @@ class Emulator:
 
         if not hasattr(self, "_io") and filename is None:
             raise ValueError(
-                "we have no clue where we could get the data from. Set a filename either in this method or the "
-                "constructor"
+                "we have no clue where we could get the data from. Set a"
+                " filename either in this method or the constructor"
             )
 
         if filename is not None:
@@ -433,14 +466,14 @@ class Emulator:
         )
 
     def setup_model(
-            self,
-            model=None,
-            filename=None,
-            load=False,
-            learning_rate=1e-3,
-            hidden_units=None,
-            verbose=True,
-            **model_kwargs,
+        self,
+        model=None,
+        filename=None,
+        load=False,
+        learning_rate=1e-3,
+        hidden_units=None,
+        verbose=True,
+        **model_kwargs,
     ):
         """
         Setup the emulator model and train it.
@@ -477,19 +510,26 @@ class Emulator:
         else:
             if not self._has_mix:
                 raise AttributeError(
-                    "we do not have a mix to work with yet. Run setup_sampling_grid and setup_mix first."
+                    "we do not have a mix to work with yet. Run"
+                    " setup_sampling_grid and setup_mix first."
                 )
 
             if model is None:
-                self.model = get_deepset(ng=self._lg, hidden_units=hidden_units)
+                self.model = get_deepset(
+                    ng=self._lg, hidden_units=hidden_units
+                )
             elif model is not None:
-                print("WARNING: make sure your model is permutation invariant!")
+                print(
+                    "WARNING: make sure your model is permutation invariant!"
+                )
                 # Use provided model (needs to be sklearn compatible)
                 self.model = model
 
             if isinstance(self.model, keras.Model):
                 extra_model_kwargs = {
-                    "optimizer": keras.optimizers.Adam(learning_rate=learning_rate),
+                    "optimizer": keras.optimizers.Adam(
+                        learning_rate=learning_rate
+                    ),
                     "loss": "mean_squared_error",
                 }
                 extra_model_kwargs.update(model_kwargs)
@@ -526,7 +566,8 @@ class Emulator:
 
         if not self._has_model:
             raise AttributeError(
-                "we do not have a model yet. Run setup_sampling_grid, setup_mix and setup_model first."
+                "we do not have a model yet. Run setup_sampling_grid,"
+                " setup_mix and setup_model first."
             )
 
         # fit the model on the training dataset
@@ -534,16 +575,20 @@ class Emulator:
         y_train = self.output_scaling(self.X_train, self.y_train)
 
         if isinstance(self.model, keras.Model):
-            callbacks = [keras.callbacks.EarlyStopping(monitor="loss", patience=3)]
+            callbacks = [
+                keras.callbacks.EarlyStopping(monitor="loss", patience=3)
+            ]
             if self.verbose:
                 callbacks.append(CustomCallback(self))
 
             self.model.fit(X_train, y_train, callbacks=callbacks, **fit_args)
         else:
-            self.model.fit(X_train.reshape(len(X_train), -1), y_train, *args, **kwargs)
+            self.model.fit(
+                X_train.reshape(len(X_train), -1), y_train, *args, **kwargs
+            )
 
         if hasattr(self, "_model_filename") and callable(
-                getattr(self.model, "save", None)
+            getattr(self.model, "save", None)
         ):
             print(f"Saving model to {self._model_filename}")
             self.model.save(self._model_filename)
@@ -620,10 +665,16 @@ class Emulator:
         y_add_test_masked = y_add_test[test_mask]
         y_add_train_masked = y_add_train[train_mask]
 
-        e_add_test = np.sqrt(mean_squared_error(y_test_masked, y_add_test_masked))
-        e_add_train = np.sqrt(mean_squared_error(y_train_masked, y_add_train_masked))
+        e_add_test = np.sqrt(
+            mean_squared_error(y_test_masked, y_add_test_masked)
+        )
+        e_add_train = np.sqrt(
+            mean_squared_error(y_train_masked, y_add_train_masked)
+        )
         e_p_test = np.sqrt(mean_squared_error(y_test_masked, y_p_test_masked))
-        e_p_train = np.sqrt(mean_squared_error(y_train_masked, y_p_train_masked))
+        e_p_train = np.sqrt(
+            mean_squared_error(y_train_masked, y_p_train_masked)
+        )
 
         if log_err_out:
             e_log_add_test = np.sqrt(
@@ -645,18 +696,28 @@ class Emulator:
         r2_p_train = r2_score(y_train_masked, y_p_train_masked)
 
         if log_err_out:
-            r2_log_add_test = r2_score(np.log(y_test_masked), np.log(y_add_test_masked))
+            r2_log_add_test = r2_score(
+                np.log(y_test_masked), np.log(y_add_test_masked)
+            )
             r2_log_add_train = r2_score(
                 np.log(y_train_masked), np.log(y_add_train_masked)
             )
-            r2_log_p_test = r2_score(np.log(y_test_masked), np.log(y_p_test_masked))
-            r2_log_p_train = r2_score(np.log(y_train_masked), np.log(y_p_train_masked))
+            r2_log_p_test = r2_score(
+                np.log(y_test_masked), np.log(y_p_test_masked)
+            )
+            r2_log_p_train = r2_score(
+                np.log(y_train_masked), np.log(y_p_train_masked)
+            )
 
         print(
-            "test           (add, model): {:.2e}, {:.2e}".format(e_add_test, e_p_test)
+            "test           (add, model): {:.2e}, {:.2e}".format(
+                e_add_test, e_p_test
+            )
         )
         print(
-            "train          (add, model): {:.2e}, {:.2e}".format(e_add_train, e_p_train)
+            "train          (add, model): {:.2e}, {:.2e}".format(
+                e_add_train, e_p_train
+            )
         )
         if log_err_out:
             print(
@@ -670,7 +731,9 @@ class Emulator:
                 )
             )
         print(
-            "r2 test        (add, model): {:.2e}, {:.2e}".format(r2_add_test, r2_p_test)
+            "r2 test        (add, model): {:.2e}, {:.2e}".format(
+                r2_add_test, r2_p_test
+            )
         )
         print(
             "r2 train       (add, model): {:.2e}, {:.2e}".format(
@@ -693,7 +756,8 @@ class Emulator:
         """Just a random check if the model has been trained or not."""
         if not self._is_trained:
             raise AttributeError(
-                "we do not have a trained model yet. Run setup_sampling_grid, setup_mix and setup_model and fit first."
+                "we do not have a trained model yet. Run setup_sampling_grid,"
+                " setup_mix and setup_model and fit first."
             )
 
     def export(self, path, file_format="exorad"):
@@ -710,7 +774,7 @@ class Emulator:
         self._check_trained()
         if isinstance(self.model, keras.Model):
             for i, weights in enumerate(self.model.weights):
-                if file_format in ('np', 'numpy'):
+                if file_format in ("np", "numpy"):
                     np.save(f"{path}/ml_coeff_{i}.npy", weights.numpy())
                 elif file_format == "exorad":
                     wrmds(
@@ -721,7 +785,9 @@ class Emulator:
                 else:
                     raise NotImplementedError("format is not supported yet.")
         else:
-            raise NotImplementedError("not implemented for the type of model used")
+            raise NotImplementedError(
+                "not implemented for the type of model used"
+            )
 
     def plot_predictions(self, validation_set=None):
         """
@@ -748,10 +814,18 @@ class Emulator:
             fig, axes = plt.subplots(1, 2, sharex=True, sharey=True)
 
             axes[0].plot(
-                y_add_test[:, index], y_test[:, index], "bo", ms=0.01, linestyle="None"
+                y_add_test[:, index],
+                y_test[:, index],
+                "bo",
+                ms=0.01,
+                linestyle="None",
             )
             axes[1].plot(
-                y_p_test[:, index], y_test[:, index], "ro", ms=0.01, linestyle="None"
+                y_p_test[:, index],
+                y_test[:, index],
+                "ro",
+                ms=0.01,
+                linestyle="None",
             )
             fig.suptitle(f"g index = {index}")
             axes[0].set_title("simple sum")
@@ -790,9 +864,7 @@ class Emulator:
                         vmin = -vmax
                         linthr = abs(weights.numpy()).min()
                         # linthr = 1e-1
-                        norm = mcolors.SymLogNorm(
-                            linthr, vmin=vmin, vmax=vmax
-                        )
+                        norm = mcolors.SymLogNorm(linthr, vmin, vmax)
                         cmap = "BrBG"
                     else:
                         norm = mcolors.LogNorm()

@@ -62,7 +62,7 @@ def setup_test_mix_grid(setup_interp_reader):
     opac, expected = setup_interp_reader
     mmr = 1e-4 * np.ones((opac.ls, opac.lp[0], opac.lt[0]))
     mixer = CombineOpacGrid(opac)
-    mix = mixer.add_single(mmr=mmr, method="RORR")
+    mix = mixer.add_single(mmr, "RORR")
     return opac, expected, mmr, mix, mixer
 
 
@@ -71,8 +71,14 @@ def setup_test_mix_ind(setup_interp_reader):
     opac, expected = setup_interp_reader
 
     mmr_batch = 1e-4 * np.ones((opac.ls, opac.lp[0], opac.lt[0]))
-    pres = np.ones((1, opac.lp[0], opac.lt[0])) * opac.pr[np.newaxis, :, np.newaxis]
-    temp = np.ones((1, opac.lp[0], opac.lt[0])) * opac.Tr[np.newaxis, np.newaxis, :]
+    pres = (
+        np.ones((1, opac.lp[0], opac.lt[0]))
+        * opac.pr[np.newaxis, :, np.newaxis]
+    )
+    temp = (
+        np.ones((1, opac.lp[0], opac.lt[0]))
+        * opac.Tr[np.newaxis, np.newaxis, :]
+    )
     input_data = np.concatenate((mmr_batch, pres, temp), axis=0).T.reshape(
         (opac.lt[0] * opac.lp[0], opac.ls + 2)
     )

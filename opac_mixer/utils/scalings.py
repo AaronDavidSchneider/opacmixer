@@ -27,8 +27,8 @@ def diff(vals, do_log=False):
 
     if len(vals.shape) == 3:
         return np.concatenate((zero_val[:, None, :], diffvals), axis=1)
-    else:
-        return np.concatenate((zero_val[:, None], diffvals), axis=-1)
+
+    return np.concatenate((zero_val[:, None], diffvals), axis=-1)
 
 
 def integrate_diff(diff_vals, do_log=False):
@@ -187,8 +187,8 @@ def inverse_transform_y_sum(X, y, do_log=True):
     xsum = X.sum(axis=-1)
     if do_log:
         return np.exp(y) * xsum
-    else:
-        return y + xsum
+
+    return y + xsum
 
 
 def transform_x_diff(X, do_log=True):
@@ -231,8 +231,8 @@ def transform_y_diff_sum(X, y, do_log=True):
     xsum = X.sum(axis=-1)
     if do_log:
         return diff(y, do_log=True) - diff(xsum, do_log=True)
-    else:
-        return diff((y - xsum) / (xsum[:, -1][:, None] + 1), do_log=False)
+
+    return diff((y - xsum) / (xsum[:, -1][:, None] + 1), do_log=False)
 
 
 def inverse_transform_y_diff_sum(X, y, do_log=True):
@@ -256,8 +256,8 @@ def inverse_transform_y_diff_sum(X, y, do_log=True):
     xsum = X.sum(axis=-1)
     if do_log:
         return integrate_diff(y + diff(xsum, do_log=True), do_log=True)
-    else:
-        return (xsum[:, -1][:, None] + 1) * integrate_diff(y, do_log=False) + xsum
+
+    return (xsum[:, -1][:, None] + 1) * integrate_diff(y, do_log=False) + xsum
 
 
 def default_input_scaling(X):

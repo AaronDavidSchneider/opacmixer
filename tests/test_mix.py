@@ -12,7 +12,8 @@ import numba
 
 
 def test_mix_single(setup_interp_reader):
-    """Test that single molecule is 'mixed' identically with all mixing functions"""
+    """Test that single molecule is 'mixed' identically with all mixing functions
+    """
     opac, expected = setup_interp_reader
 
     mol_single_i = 0
@@ -20,8 +21,8 @@ def test_mix_single(setup_interp_reader):
     mmr[mol_single_i, :, :] = 1.0
 
     mix = CombineOpacGrid(opac)
-    lm = mix.add_single(mmr=mmr, method="linear")
-    rm = mix.add_single(mmr=mmr, method="RORR")
+    lm = mix.add_single(mmr, "linear")
+    rm = mix.add_single(mmr, "RORR")
 
     assert np.all(
         np.isclose(lm, rm)
@@ -56,7 +57,9 @@ def kdata_conv_loop_profile(kdata1, kdata2, kdataconv, Nlay, Nw, Ng):
         for j in range(Nw):
             for l in range(Ng):
                 for m in range(Ng):
-                    kdataconv[i, j, l * Ng + m] = kdata1[i, j, m] + kdata2[i, j, l]
+                    kdataconv[i, j, l * Ng + m] = (
+                        kdata1[i, j, m] + kdata2[i, j, l]
+                    )
 
 
 @numba.njit(nogil=True, fastmath=True, cache=True)
@@ -114,7 +117,8 @@ def RandOverlap_2_kdata_prof(Nlay, Nw, Ng, kdata1, kdata2, weights, ggrid):
 
 
 def test_individual_rorr_vs_grid_rorr(setup_test_mix_grid, setup_test_mix_ind):
-    """Test that there is no difference between the individual mixing and the grid mixing"""
+    """Test that there is no difference between the individual mixing and the grid mixing
+    """
     opac_ind, _, input_data, mix_ind, _ = setup_test_mix_ind
     opac_grid, _, _, mix_grid, _ = setup_test_mix_grid
 
@@ -131,8 +135,8 @@ def _test_rorr_vs_aee_vs_linear(setup_test_mix_grid):
 
     opac, expected, mmr, mix, mixer = setup_test_mix_grid
 
-    mix_l = mixer.add_single(mmr=mmr, method="linear")
-    mix_a = mixer.add_single(mmr=mmr, method="AEE")
+    mix_l = mixer.add_single(mmr, "linear")
+    mix_a = mixer.add_single(mmr, "AEE")
 
     for p in [1e-1]:
         for t in [2000]:
@@ -184,7 +188,10 @@ def test_mix_vs_prt(setup_test_mix_grid):
     atmosphere = Radtrans(
         line_species=linespecies,
         pressures=opac.pr,
-        wlen_bords_micron=[(1e4 / opac.bin_edges).min(), (1e4 / opac.bin_edges).max()],
+        wlen_bords_micron=[
+            (1e4 / opac.bin_edges).min(),
+            (1e4 / opac.bin_edges).max(),
+        ],
         test_ck_shuffle_comp=True,
     )
 
@@ -203,7 +210,9 @@ def test_mix_vs_prt(setup_test_mix_grid):
 
     kcoeff_prt = np.empty_like(mix)
     for i, temp in enumerate(opac.Tr):
-        abunds = {spec: mmr[speci, :, i] for speci, spec in enumerate(linespecies)}
+        abunds = {
+            spec: mmr[speci, :, i] for speci, spec in enumerate(linespecies)
+        }
 
         atmosphere.interpolate_species_opa(np.ones_like(opac.pr) * temp)
 
@@ -229,9 +238,9 @@ def test_mix_vs_prt(setup_test_mix_grid):
             give_scattering_opacity=give_scattering_opacity,
         )
 
-        kcoeff_prt[:, i, :, :] = atmosphere.line_struc_kappas[:, ::-1, 0, :].transpose(
-            2, 1, 0
-        )
+        kcoeff_prt[:, i, :, :] = atmosphere.line_struc_kappas[
+            :, ::-1, 0, :
+        ].transpose(2, 1, 0)
 
     np.testing.assert_allclose(kcoeff_prt, mix, rtol=2.0)
 
@@ -251,7 +260,8 @@ def test_mix_vs_prt(setup_test_mix_grid):
 
 
 def _test_mix_vs_exok(setup_test_mix_grid):
-    """Compare against exok ck RORR implementation. Note, that this implementation is different."""
+    """Compare against exok ck RORR implementation. Note, that this implementation is different.
+    """
     import matplotlib.pyplot as plt
 
     opac, expected, mmr, mix, mixer = setup_test_mix_grid
@@ -290,9 +300,15 @@ def _test_mix_vs_exok(setup_test_mix_grid):
                         opac.bin_edges[fi + 1] - opac.bin_edges[fi]
                     )
                     plt.title(f"exok: {p}, {t}")
-                    plt.loglog(x, mix[pi, ti, fi, :], color="black", alpha=0.4, ls="-")
                     plt.loglog(
-                        x, kcoeff_exok[pi, ti, fi, :], color="orange", alpha=0.4, ls="-"
+                        x, mix[pi, ti, fi, :], color="black", alpha=0.4, ls="-"
+                    )
+                    plt.loglog(
+                        x,
+                        kcoeff_exok[pi, ti, fi, :],
+                        color="orange",
+                        alpha=0.4,
+                        ls="-",
                     )
 
                 plt.show()

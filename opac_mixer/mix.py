@@ -23,7 +23,9 @@ DEFAULT_METHOD = "RORR"
 
 
 @numba.njit(nogil=True, fastmath=True, cache=True)
-def resort_rebin_njit(kout_conv, k1, k2, weights_in, weights_conv, Np, Nt, Nf, Ng):
+def resort_rebin_njit(
+    kout_conv, k1, k2, weights_in, weights_conv, Np, Nt, Nf, Ng
+):
     """
     Resort and rebin the convoluted kappas. Note that this function works with g values calculated half integer.
     Fast, because it uses Numba
@@ -73,16 +75,22 @@ def resort_rebin_njit(kout_conv, k1, k2, weights_in, weights_conv, Np, Nt, Nf, N
             for freqi in range(Nf):
                 # Sort and resort:
                 index_sort = np.argsort(kout_conv[pi, ti, freqi])
-                kout_conv_resorted[:len_resort] = kout_conv[pi, ti, freqi][index_sort]
+                kout_conv_resorted[:len_resort] = kout_conv[pi, ti, freqi][
+                    index_sort
+                ]
                 weights_resorted = weights_conv[index_sort]
                 # compute new g-grid:
-                g_resorted[:len_resort] = compute_ggrid(weights_resorted, Ng * Ng)
+                g_resorted[:len_resort] = compute_ggrid(
+                    weights_resorted, Ng * Ng
+                )
                 # edges:
                 g_resorted[len_resort] = 1.0
                 kout_conv_resorted[len_resort] = (
-                        k1[pi, ti, freqi, -1] + k2[pi, ti, freqi, -1]
+                    k1[pi, ti, freqi, -1] + k2[pi, ti, freqi, -1]
                 )
-                kout_conv_resorted[0] = k1[pi, ti, freqi, 0] + k2[pi, ti, freqi, 0]
+                kout_conv_resorted[0] = (
+                    k1[pi, ti, freqi, 0] + k2[pi, ti, freqi, 0]
+                )
                 # interpolate:
                 kout[pi, ti, freqi, :] = np.interp(
                     ggrid, g_resorted, kout_conv_resorted
@@ -147,17 +155,17 @@ def compute_weights(g, Ng):
 
 @numba.njit(nogil=True, fastmath=True, cache=True, parallel=False)
 def _rorr_single(
-        ktable,
-        weights,
-        weights_conv,
-        ls,
-        lf,
-        lg,
-        temp_old,
-        press_old,
-        lt_old,
-        lp_old,
-        input_data,
+    ktable,
+    weights,
+    weights_conv,
+    ls,
+    lf,
+    lg,
+    temp_old,
+    press_old,
+    lt_old,
+    lp_old,
+    input_data,
 ):
     """
     A numba accelerated function that performs RORR on one pressure and temperature point
@@ -203,7 +211,18 @@ def _rorr_single(
     mmr = np.asarray(input_data[:-2])
 
     ki = interp_2d(
-        temp_old, press_old, temp, press, ktable, ls, lf, lg, lt_old, lp_old, 1, 1
+        temp_old,
+        press_old,
+        temp,
+        press,
+        ktable,
+        ls,
+        lf,
+        lg,
+        lt_old,
+        lp_old,
+        1,
+        1,
     )
 
     for speci in range(ls):
@@ -216,9 +235,13 @@ def _rorr_single(
         k2 = mixed_ktables[speci, :, :, :, :]
         for gi in range(lg):
             for gj in range(lg):
-                kout_conv[0, 0, :, gi + lg * gj] = k1[0, 0, :, gj] + k2[0, 0, :, gi]
+                kout_conv[0, 0, :, gi + lg * gj] = (
+                    k1[0, 0, :, gj] + k2[0, 0, :, gi]
+                )
 
-        kout = resort_rebin_njit(kout_conv, k1, k2, weights, weights_conv, 1, 1, lf, lg)
+        kout = resort_rebin_njit(
+            kout_conv, k1, k2, weights, weights_conv, 1, 1, lf, lg
+        )
 
     return kout[0, 0, :, :]
 
@@ -250,7 +273,8 @@ class CombineOpac:
 
 
 class CombineOpacIndividual(CombineOpac):
-    """A class for mixing arbitrary abundances and temperatures, pressures for each species"""
+    """A class for mixing arbitrary abundances and temperatures, pressures for each species
+    """
 
     def add_batch(self, input_data, method=DEFAULT_METHOD):
         """mix the kgrid with a batch of different pressure temperature and abundances values.
@@ -404,14 +428,16 @@ class CombineOpacIndividual(CombineOpac):
                 return np.asarray(
                     list(
                         tqdm.tqdm(
-                            pool.imap(func, input_data, chunksize=100), total=Nsamples
+                            pool.imap(func, input_data, chunksize=100),
+                            total=Nsamples,
                         )
                     ),
                     dtype=np.float64,
                 )
         else:
             return np.asarray(
-                list(tqdm.tqdm(map(func, input_data), total=Nsamples)), dtype=np.float64
+                list(tqdm.tqdm(map(func, input_data), total=Nsamples)),
+                dtype=np.float64,
             )
 
 
@@ -441,8 +467,8 @@ class CombineOpacGrid(CombineOpac):
         if method == "RORR":
             # The RORR method
             return partial(self._add_rorr, self.opac.kcoeff, self.opac.weights)
-        else:
-            raise NotImplementedError("Method not implemented.")
+
+        raise NotImplementedError("Method not implemented.")
 
     def _check_mmr_shape(self, mmr):
         """
@@ -513,7 +539,9 @@ class CombineOpacGrid(CombineOpac):
         mix_func = self._get_mix_func(method)
         return np.asarray([mix_func(mmr_i) for mmr_i in tqdm.tqdm(mmr)])
 
-    def add_batch_parallel(self, input_data, method=DEFAULT_METHOD, **pool_kwargs):
+    def add_batch_parallel(
+        self, input_data, method=DEFAULT_METHOD, **pool_kwargs
+    ):
         """Parallel version of add_batch
 
         Parameters
@@ -580,16 +608,18 @@ class CombineOpacGrid(CombineOpac):
             The mixed k tables
         """
 
-        mixed_ktables = mmr[:, :, :, np.newaxis, np.newaxis] * ktable[:, :, :, :, :]
+        mixed_ktables = (
+            mmr[:, :, :, np.newaxis, np.newaxis] * ktable[:, :, :, :, :]
+        )
         kout = mixed_ktables[0, :, :, :, :]
         weights_conv = np.outer(weights, weights).flatten()
 
         for speci in range(1, ktable.shape[0]):
             k1 = kout
             k2 = mixed_ktables[speci]
-            kout_conv = (k1[..., :, np.newaxis] + k2[..., np.newaxis, :]).reshape(
-                *kout.shape[:-1], weights_conv.shape[0]
-            )
+            kout_conv = (
+                k1[..., :, np.newaxis] + k2[..., np.newaxis, :]
+            ).reshape(*kout.shape[:-1], weights_conv.shape[0])
             kout = resort_rebin_njit(
                 kout_conv, k1, k2, weights, weights_conv, *kout.shape
             )
