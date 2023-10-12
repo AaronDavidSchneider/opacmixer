@@ -44,6 +44,7 @@ DEFAULT_MMR_RANGES = {
 
 class DataIO:
     """IO Class for storing the emulator"""
+
     def __init__(self, filename):
         """Setup the IO class"""
         self.filename = filename
@@ -78,25 +79,26 @@ class Emulator:
     """
     The supervisor that handels the training and evaluation of the opacity emulator.
     """
+
     def __init__(
-        self,
-        opac,
-        prange_opacset=DEFAULT_PRANGE,
-        trange_opacset=DEFAULT_TRANGE,
-        filename_data=None,
+            self,
+            opac,
+            prange_opacset=DEFAULT_PRANGE,
+            trange_opacset=DEFAULT_TRANGE,
+            filename_data=None,
     ):
         """
         Construct the emulator class.
 
         Parameters
         ----------
-        opac: opac_mixer.read.ReadOpac
+        opac (opac_mixer.read.ReadOpac):
             a list of input opacity readers. Can be setup, but does not need to. Will do the setup itself otherwise.
-        prange_opacset: (lower, upper, num_points)
-            (optional): the range to which the reader should interpolate the pressure grid to
-        trange_opacset: (lower, upper, num_points)
-            (optional): the range to which the reader should interpolate the temperature grid to
-        filename_data: str
+        prange_opacset (array(3)):
+            optional, the range to which the reader should interpolate the pressure grid to (lower, upper, num_points).
+        trange_opacset (array(3)):
+            optional, the range to which the reader should interpolate the temperature grid to (lower, upper, num_points).
+        filename_data (str):
             A filename, used to save the training and testing data to
         """
         if isinstance(opac, list):
@@ -133,10 +135,10 @@ class Emulator:
 
         if len(ls) > 1:
             assert (
-                np.diff(ls) == 0.0
+                    np.diff(ls) == 0.0
             ), "we need the same number of species for all ReadOpac instances"
             assert (
-                np.diff(lg) == 0.0
+                    np.diff(lg) == 0.0
             ), "we need the same number of g points for all ReadOpac instances"
 
         self._lg = lg[0]
@@ -168,11 +170,12 @@ class Emulator:
         self.input_data = np.empty((0, *self._input_dim))
 
     def setup_scaling(
-        self, input_scaling=None, output_scaling=None, inv_output_scaling=None
+            self, input_scaling=None, output_scaling=None, inv_output_scaling=None
     ):
         """
         (optional) Change the callback functions for the scaling of in and output.
         Defaults are given as opac_mixer.scalings.default_<name>.
+        See opac_mixer/utils/scalings.py for inspiration
         """
         if input_scaling is not None:
             self.input_scaling = input_scaling
@@ -203,19 +206,19 @@ class Emulator:
 
         Parameters
         ----------
-        approx_batchsize: int
+        approx_batchsize (int):
             Number of total sampling points. Needs to be a power of 2 for sobol sampling
-        bounds: dict or None
+        bounds (dict or None):
             the lower and upper bounds for sampling. Shape: {'species':(lower, upper)}
             The key can be either a species name in opac.spec or p and T for pressure and Temperature.
             It will use opac_mixer.emulator.DEFAULT_MMR_RANGES for mmrs, opac_mixer.emulator.DEFAULT_PRANGE for pressure,
             and opac_mixer.emulator.DEFAULT_TRANGE for temperautre for all missing values
-        extra_abus: np.array(num_sample, ls, lp, lt)
+        extra_abus (array(num_sample, ls, lp, lt)):
             Extra abundancies (mmrs) used for the training data. Could be e.g., a grid of eq. chem abundancies
 
         Returns
         -------
-        input_data: np.array((batchsize, opac.lg, opac.ls))
+        input_data (array(batchsize, opac.lg, opac.ls)):
             The sampled inputdata to train/test the emulator.
             The input_data consists of kappas(g) for each species
         """
@@ -230,13 +233,13 @@ class Emulator:
         for opac in self.opac:
             if extra_abus is not None:
                 assert (
-                    extra_abus.shape[1] == self._ls
+                        extra_abus.shape[1] == self._ls
                 ), "wrong shape in extra_abus second dimension (number of species)"
                 assert (
-                    extra_abus.shape[2] == opac.lp[0]
+                        extra_abus.shape[2] == opac.lp[0]
                 ), "wrong shape in extra_abus second dimension (number of pressure points)"
                 assert (
-                    extra_abus.shape[3] == opac.lt[0]
+                        extra_abus.shape[3] == opac.lt[0]
                 ), "wrong shape in extra_abus second dimension (number of temperature points)"
                 extra_batchsize = int(extra_abus.shape[0])
             else:
@@ -271,8 +274,8 @@ class Emulator:
             abus = np.exp(
                 sample[:, :, :, :]
                 * (
-                    np.log(u_bounds)[np.newaxis, :, np.newaxis, np.newaxis]
-                    - np.log(l_bounds)[np.newaxis, :, np.newaxis, np.newaxis]
+                        np.log(u_bounds)[np.newaxis, :, np.newaxis, np.newaxis]
+                        - np.log(l_bounds)[np.newaxis, :, np.newaxis, np.newaxis]
                 )
                 + np.log(l_bounds)[np.newaxis, :, np.newaxis, np.newaxis]
             )
@@ -281,7 +284,7 @@ class Emulator:
                 abus = np.concatenate((abus, extra_abus), axis=0)
 
             weighted_kappas = (
-                abus[:, :, :, :, np.newaxis, np.newaxis] * opac.kcoeff[np.newaxis, ...]
+                    abus[:, :, :, :, np.newaxis, np.newaxis] * opac.kcoeff[np.newaxis, ...]
             )
             weighted_kappas = weighted_kappas.transpose((0, 2, 3, 4, 1, 5))
             self.abus.append(abus)
@@ -314,11 +317,11 @@ class Emulator:
 
         Parameters
         ----------
-        test_size: float
+        test_size (float):
             fraction of data used for testing
-        split_seed: int
+        split_seed (int):
             A seed to be used for shuffling training and test data before splitting
-        do_parallel:
+        do_parallel (bool):
             If you want to create the data in parallel or not
         """
         if not self._has_input:
@@ -327,12 +330,12 @@ class Emulator:
             )
 
         if split_seed is None:
-            split_seed = np.random.randint(2**32 - 1)
+            split_seed = np.random.randint(2 ** 32 - 1)
 
         # make sure the filename comes without the npy suffix
         mixes = np.empty((0, self._lg))
         for mixer, abus, batchsize_resh in zip(
-            self.mixer, self.abus, self._batchsize_resh
+                self.mixer, self.abus, self._batchsize_resh
         ):
             if do_parallel:
                 mix = mixer.add_batch_parallel(abus)
@@ -355,21 +358,21 @@ class Emulator:
         return self.X_train, self.X_test, self.y_train, self.y_test
 
     def load_data(
-        self, filename=None, test_size=None, split_seed=None, use_split_seed=True
+            self, filename=None, test_size=None, split_seed=None, use_split_seed=True
     ):
         """
         Load the training and test data from a h5 file.
 
         Parameters
         ----------
-        filename: str (optional)
-            Can be set either here or in the constructor. Make sure the filename comes without the npy suffix
-        test_size: float (optional)
-            use a different test size than the one loaded
-        split_seed: int (optional)
-            use a different seed to shuffle data before spliting training and testing data
-        use_split_seed: bool (optional)
-            if true, it will just use the provided or loaded split seed, else it will create a new random one
+        filename (str):
+            optional, can be set either here or in the constructor. Make sure the filename comes without the npy suffix
+        test_size (float):
+            optional, use a different test size than the one loaded
+        split_seed (int):
+            optional, use a different seed to shuffle data before spliting training and testing data
+        use_split_seed (bool):
+            optional, if true, it will just use the provided or loaded split seed, else it will create a new random one
         """
 
         if not hasattr(self, "_io") and filename is None:
@@ -410,11 +413,11 @@ class Emulator:
             The input (X)
         mix:
             The output (y)
-        split_seed:
+        split_seed (float):
             a specific random seed to use
-        test_size:
+        test_size (float):
             The size of the test-set
-        use_split_seed:
+        use_split_seed (bool):
             If the split seed is to be used or not
         """
         if (mix <= 0).any():
@@ -430,14 +433,14 @@ class Emulator:
         )
 
     def setup_model(
-        self,
-        model=None,
-        filename=None,
-        load=False,
-        learning_rate=1e-3,
-        hidden_units=None,
-        verbose=True,
-        **model_kwargs,
+            self,
+            model=None,
+            filename=None,
+            load=False,
+            learning_rate=1e-3,
+            hidden_units=None,
+            verbose=True,
+            **model_kwargs,
     ):
         """
         Setup the emulator model and train it.
@@ -445,21 +448,21 @@ class Emulator:
 
         Parameters
         ----------
-        model: sklearn compatible model
+        model (sklearn compatible model):
             (optional): a model to learn. Needs to be contructed already. Use DeepSet by default
-        filename: str or None
-            (optional): A filename to save the model
-        load: bool
-            (optional): load a -pretrained- model instead of constructing one
+        filename (str or None):
+            optional, A filename to save the model
+        load (bool):
+            optional, load a -pretrained- model instead of constructing one
 
 
         Parameters for DeepSet
         ----------------------
         Check keras.compile docs for more arguments. Any extra argument is directly passed to keras.compile
-        learning_rate: float
-            (optional): learning rate of optimizer (adam per default, change by setting optimizer=<name>)
-        hidden_units: int
-            (optional): number of hidden units in the encoder (per default equals number of g-points)
+        learning_rate (float):
+            optional, learning rate of optimizer (adam per default, change by setting optimizer=<name>)
+        hidden_units (int):
+            optional, number of hidden units in the encoder (per default equals number of g-points)
 
         (model_kwargs)
             arguments to pass to keras.compile for construction (only when model=None is used)
@@ -540,7 +543,7 @@ class Emulator:
             self.model.fit(X_train.reshape(len(X_train), -1), y_train, *args, **kwargs)
 
         if hasattr(self, "_model_filename") and callable(
-            getattr(self.model, "save", None)
+                getattr(self.model, "save", None)
         ):
             print(f"Saving model to {self._model_filename}")
             self.model.save(self._model_filename)
@@ -553,7 +556,7 @@ class Emulator:
 
         Parameters
         ----------
-        X: array like (num_samples, input_dim)
+        X (array like (num_samples, input_dim)):
             The values you want predictions for
         args:
             Whatever you want to pass to the model for prediction
@@ -586,7 +589,7 @@ class Emulator:
 
         Parameters
         ----------
-        validation_set: list(X_test, y_test)
+        validation_set (list(X_test, y_test)):
             validation set to be used instead of (self.X_test, self.y_test)
         """
         if validation_set is None:
@@ -699,9 +702,9 @@ class Emulator:
 
         Parameters
         ----------
-        path: str
+        path (str):
             path where the weights should be stored
-        file_format: str
+        file_format (str):
             the format in which the weights should be stored. Can be either exorad or numpy.
         """
         self._check_trained()
