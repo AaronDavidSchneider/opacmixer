@@ -289,7 +289,7 @@ class ReadOpacChubb(ReadOpac):
 
                 # convert k-table grid from cm2/mol to cm2/g:
                 conversion_factor = 1 / (
-                        np.float64(f["mol_mass"][0]) * const.u.cgs.value
+                        np.float64(f["mol_mass"][0]) * const.atomic_mass * 1000
                 )
                 kcoeff = np.array(f["kcoeff"], dtype=np.float64) * conversion_factor
 

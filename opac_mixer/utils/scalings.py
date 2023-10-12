@@ -1,7 +1,24 @@
+"""Module housing several different input and output scaling functions.
+ The defaults are at the end of the file with the prefix default_"""
 import numpy as np
 
 
 def diff(vals, do_log=False):
+    """
+    Calculating the difference along $g$ values
+
+    Parameters
+    ----------
+    vals (array like):
+        the values to be transformed
+    do_log (bool):
+        transform to log space
+
+    Returns
+    -------
+    trans (array like):
+        The transformed values
+    """
     diffvals = np.diff(vals, axis=1)
     zero_val = vals[:, 0]
     if do_log:
@@ -15,7 +32,21 @@ def diff(vals, do_log=False):
 
 
 def integrate_diff(diff_vals, do_log=False):
-    """Integrate along last axis to invert np.diff"""
+    """
+    Reverting diff
+
+    Parameters
+    ----------
+    diff_vals (array like):
+        the values to be transformed
+    do_log (bool):
+        transform to log space
+
+    Returns
+    -------
+    int_res (array like):
+        The transformed values
+    """
 
     rev_diff = diff_vals
     if do_log:
@@ -27,21 +58,79 @@ def integrate_diff(diff_vals, do_log=False):
 
 
 def transform_x_scaled(X):
+    """
+    Scale by sum along $g$
+
+    Parameters
+    ----------
+    X (array like):
+        input values, needs to have $g$ at last axis
+
+    Returns
+    -------
+    X_scaled (array like):
+        the scaled X values
+    """
     xlargest = X.sum(axis=-1)[:, -1]
     return X / xlargest[:, None, None]
 
 
 def transform_y_scaled(X, y):
+    """
+    Scale y by sum of X along $g$
+
+    Parameters
+    ----------
+    X (array like):
+        input values, needs to have $g$ at last axis
+    y (array like):
+        the targets which are to be scaled
+
+    Returns
+    -------
+    y_scaled (array like):
+        the scaled y values
+    """
     xlargest = X.sum(axis=-1)[:, -1]
     return y / xlargest[:, None]
 
 
 def inverse_transform_y_scaled(X, y):
+    """
+    revert transform_y_scaled
+
+    Parameters
+    ----------
+    X (array like):
+        input values, needs to have $g$ at last axis
+    y (array like):
+        the scaled targets which are to be reverted
+
+    Returns
+    -------
+    y_scaled (array like):
+        the transformed y values
+    """
     xlargest = X.sum(axis=-1)[:, -1]
     return y * xlargest[:, None]
 
 
 def transform_x_sum(X, do_log=True):
+    """
+    X-Xsum, where X sum is the sum along $g$ values
+
+    Parameters
+    ----------
+    X (array like):
+        the input data. Last axis needs to be $g$
+    do_log (bool):
+        take log of the scaled input data
+
+    Returns
+    -------
+    transformed (array like):
+        the transformed input
+    """
     xsum = X.sum(axis=-1)
     if do_log:
         transformed = np.log(X / xsum[:, :, None])
@@ -52,6 +141,23 @@ def transform_x_sum(X, do_log=True):
 
 
 def transform_y_sum(X, y, do_log=True):
+    """
+    y-Xsum, where X sum is the sum along $g$ values
+
+    Parameters
+    ----------
+    X (array like):
+        the input data. Last axis needs to be $g$
+    y (array like):
+        the targets to be scaled
+    do_log (bool):
+        take log of the scaled input data
+
+    Returns
+    -------
+    transformed (array like):
+        the scaled targets
+    """
     xsum = X.sum(axis=-1)
     if do_log:
         transformed = np.log(y / xsum)
@@ -61,6 +167,23 @@ def transform_y_sum(X, y, do_log=True):
 
 
 def inverse_transform_y_sum(X, y, do_log=True):
+    """
+    Revert transform_y_sum
+
+    Parameters
+    ----------
+    X (array like):
+        the input data. Last axis needs to be $g$
+    y (array like):
+        the scaled targets to be transformed
+    do_log (bool):
+        take log of the scaled input data
+
+    Returns
+    -------
+    trans (array like):
+        transformed targets
+    """
     xsum = X.sum(axis=-1)
     if do_log:
         return np.exp(y) * xsum
@@ -69,10 +192,42 @@ def inverse_transform_y_sum(X, y, do_log=True):
 
 
 def transform_x_diff(X, do_log=True):
+    """
+    Scales input using the diff
+
+    Parameters
+    ----------
+    X (array like):
+        The input data
+    do_log (bool):
+        go to logspace
+
+    Returns
+    -------
+    trans (array like):
+        The scaled input data
+    """
     return diff(X, do_log=do_log)
 
 
 def transform_y_diff_sum(X, y, do_log=True):
+    """
+    Scales targets using the diff
+
+    Parameters
+    ----------
+    X (array like):
+        The input data
+    y (array like):
+        The targets to be scaled
+    do_log (bool):
+        go to logspace
+
+    Returns
+    -------
+    trans (array like):
+        The scaled targets
+    """
     xsum = X.sum(axis=-1)
     if do_log:
         return diff(y, do_log=True) - diff(xsum, do_log=True)
@@ -81,6 +236,23 @@ def transform_y_diff_sum(X, y, do_log=True):
 
 
 def inverse_transform_y_diff_sum(X, y, do_log=True):
+    """
+    Revert transform_y_diff_sum
+
+    Parameters
+    ----------
+    X (array like):
+        The input data
+    y (array like):
+        The scaled targets to transform
+    do_log (bool):
+        Go to log space
+
+    Returns
+    -------
+    trans (array like):
+        the recovered targets
+    """
     xsum = X.sum(axis=-1)
     if do_log:
         return integrate_diff(y + diff(xsum, do_log=True), do_log=True)
@@ -89,15 +261,55 @@ def inverse_transform_y_diff_sum(X, y, do_log=True):
 
 
 def default_input_scaling(X):
-    """Default function used for input scaling"""
+    """
+    Default function used for input scaling
+
+    Parameters
+    ----------
+    X (array like):
+        The input data to be scaled
+
+    Returns
+    -------
+    trans (array like):
+        The transformed input data
+    """
     return transform_x_sum(X, do_log=True)
 
 
 def default_output_scaling(X, y):
-    """Default function used for output scaling"""
+    """
+    Default function used for output scaling
+
+    Parameters
+    ----------
+    X (array like):
+        The input data
+    y (array like):
+        The targets to be scaled
+
+    Returns
+    -------
+    trans (array like):
+        The transformed targets
+    """
     return transform_y_sum(X, y, do_log=True)
 
 
 def default_inv_output_scaling(X, y):
-    """Default function used to recover output scaling"""
+    """
+    Default function used to recover output scaling
+
+    Parameters
+    ----------
+    X (array like):
+        The input data
+    y (array like):
+        The scaled targets to be transformed
+
+    Returns
+    -------
+    trans (array like):
+        The recovered targets
+    """
     return inverse_transform_y_sum(X, y, do_log=True)

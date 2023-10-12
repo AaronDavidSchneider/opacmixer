@@ -1,23 +1,59 @@
+"""Module that houses the 2D interpolation routine"""
 import numba
 import numpy as np
 
 
 @numba.njit(nogil=True, fastmath=True, cache=True)
 def interp_2d(
-    temp_old,
-    press_old,
-    temp_new,
-    press_new,
-    kcoeff,
-    ls,
-    lf,
-    lg,
-    lt_old,
-    lp_old,
-    lt_new,
-    lp_new,
+        temp_old,
+        press_old,
+        temp_new,
+        press_new,
+        kcoeff,
+        ls,
+        lf,
+        lg,
+        lt_old,
+        lp_old,
+        lt_new,
+        lp_new,
 ):
-    """Function that interpolates to correct pressure and temperature."""
+    """
+    Function that does a bilinear interpolation on k-tables in 2D to correct pressure and temperature.
+    Numba accelerated.
+
+    Parameters
+    ----------
+    temp_old (array(lt_old)):
+        the temperature values of the original grid
+    press_old (array(lp_old)):
+        the pressure values of the original grid
+    temp_new (array(lt_new)):
+        the temperature values to which we interpolate
+    press_new (array(lp_new)):
+        the pressure values to which we interpolate
+    kcoeff (array(ls, lp_old, lt_old, lf, lg):
+        the k-table which is to be interpolated to new pressure temperature values
+    ls (int):
+        Number of opacity species in k-table grid
+    lf (int):
+        Number of frequency points in k-table grid
+    lg (int):
+        Number of $g$ values in k-table grid
+    lt_old (int):
+        number of temperature points in original grid
+    lp_old (int):
+        number of pressure points in original grid
+    lt_new (int):
+        number of temperature points to which we interpolate
+    lp_new (int):
+        number of pressure points to which we interpolate
+
+    Returns
+    -------
+    kcoeff_new (array(ls, lp_new, lt_new, lf, lg)):
+        The interpolated k-table grid
+    """
     kcoeff_new = np.empty((ls, lp_new, lt_new, lf, lg), dtype=np.float64)
 
     for speci in range(ls):

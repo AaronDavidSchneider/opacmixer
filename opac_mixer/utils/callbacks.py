@@ -1,9 +1,11 @@
+"""Module with callbacks for training."""
 import numpy as np
 from sklearn.metrics import mean_squared_error, r2_score
 from tensorflow import keras
 
 
 def logerr(y_true, y_pred):
+    """A logarithmic mean squared error."""
     mask = y_pred > 0
     try:
         return mean_squared_error(np.log(y_true[mask]), np.log(y_pred[mask]))
@@ -12,6 +14,7 @@ def logerr(y_true, y_pred):
 
 
 def logr2(y_true, y_pred):
+    """A r2 score for logarithmic data"""
     mask = y_pred > 0
     try:
         return r2_score(np.log(y_true[mask]), np.log(y_pred[mask]))
@@ -20,8 +23,23 @@ def logr2(y_true, y_pred):
 
 
 class CustomCallback(keras.callbacks.Callback):
-    def __init__(self, emulator, num_test=10000, errorfuncs=[logerr, logr2]):
+    """A custom callback for keras that prints out custom metrics"""
+    def __init__(self, emulator, num_test=10000, errorfuncs=None):
+        """
+        Constructor of the callback class
+
+        Parameters
+        ----------
+        emulator (Emulator):
+            the Emulator instance
+        num_test (int):
+            The size of the test set used for validation
+        errorfuncs (list(functions) or None):
+            list of functions that are used for validation
+        """
         super().__init__()
+        if errorfuncs is None:
+            errorfuncs = [logerr, logr2]
         self.validation_sets = []
         self._t_x = emulator.input_scaling
         self._ti_y = emulator.inv_output_scaling
@@ -38,6 +56,16 @@ class CustomCallback(keras.callbacks.Callback):
         self.errorfuncs = errorfuncs
 
     def on_epoch_end(self, epoch, logs=None):
+        """
+        Callback for end of epoch
+
+        Parameters
+        ----------
+        epoch (int):
+            the epoch
+        logs (None or list):
+            The logs from keras which have the loss
+        """
         errs = []
         for X_test, y_test, ti in self.validation_sets:
             y_pred = self._ti_y(

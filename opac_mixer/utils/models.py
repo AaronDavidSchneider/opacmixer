@@ -1,10 +1,26 @@
+"""Module that houses several of the models that have been tested for ktable mixing emulation"""
 import tensorflow as tf
 from tensorflow import keras
 from tensorflow.keras import layers
 
 
 def get_simple_1d_conv(ng, num_species):
-    """Simple CNN model"""
+    """
+    Simple CNN model
+    warning: fixed number of species
+
+    Parameters
+    ----------
+    ng (int):
+        number of $g$ values
+    num_species (int):
+        number of species to be mixed (fixed)
+
+    Returns
+    -------
+    model (keras.Model):
+        a keras model
+    """
     model = keras.Sequential()
     model.add(layers.Input(shape=(ng, num_species)))
     layers.Permute((2, 1), input_shape=(ng, num_species)),
@@ -23,7 +39,22 @@ def get_simple_1d_conv(ng, num_species):
 
 
 def get_simple_mlp(ng, hidden_units=None):
-    """Simple MLP model, warning: not permutation invariant!"""
+    """
+    Simple MLP model with several dense layers
+    warning: not permutation invariant!
+
+    Parameters
+    ----------
+    ng (int):
+        number of $g$ values
+    hidden_units (int):
+        number of units in the dense layers
+
+    Returns
+    -------
+    model (keras.Model):
+        a keras model
+    """
     if hidden_units is None:
         hidden_units = ng
 
@@ -38,7 +69,22 @@ def get_simple_mlp(ng, hidden_units=None):
 
 
 def get_deepset(ng, hidden_units=None):
-    """DeepSet with MLP as decoder and encoder."""
+    """
+    DeepSet with MLP as decoder and encoder.
+    From the paper
+
+    Parameters
+    ----------
+    ng (int):
+        number of $g$ values
+    hidden_units (int):
+        number of units in the encoding dense layer
+
+    Returns
+    -------
+    model (keras.Model):
+        a keras model
+    """
     if hidden_units is None:
         hidden_units = ng
 
@@ -54,24 +100,26 @@ def get_deepset(ng, hidden_units=None):
     return model
 
 
-def get_encoder_decoder_conv(ng, species):
-    # Define CNN layers to process each instance in the set
-    model = keras.Sequential(
-        [
-            layers.Input(shape=(ng, species)),
-            layers.Conv1D(filters=4, kernel_size=3, activation="relu"),
-            layers.Conv1D(filters=4, kernel_size=3, activation="relu"),
-            layers.Conv1D(filters=4, kernel_size=3, activation="relu"),
-            layers.GlobalMaxPooling1D(),
-            layers.Dense(units=16, activation="linear"),
-        ]
-    )
-    return model
-
-
 def get_unet_1d(ng, species, min_filters=8):
-    """A U-NET like architecture
+    """
+    A U-NET like architecture
     Idea: convolutes the species with each other by first downconvoluting and then upconvoluting
+
+    warning: fixed number of species
+
+    Parameters
+    ----------
+    ng (int):
+        number of $g$ values
+    species (int):
+        number of species to be mixed
+    min_filters (int):
+        number of filters in the first convolution layer
+
+    Returns
+    -------
+    model (keras.Model):
+        a keras model
     """
 
     input_layer = layers.Input(shape=(ng, species))
