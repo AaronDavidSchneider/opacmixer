@@ -15,9 +15,7 @@ Finally, if you want to couple the code to your own radiative transfer, you migh
 Thats easy, and its explained in :ref:`Tutorial: Add custom k-tables`. You also need to write a short code passage to deploy the mixing in the radiative transfer solver (see :ref:`Deployment in code`).
 
 If you find this work useful, please consider to cite the following paper:
-Schneider et al. (in review)
-
-WARNING: The paper is not yet published, please do not use this code, before it is published
+[Schneider et al. (2023)](https://ui.adsabs.harvard.edu/abs/2023arXiv231100775S)
 
 .. toctree::
    :maxdepth: 0
